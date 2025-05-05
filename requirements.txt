@@ -1,0 +1,11 @@
+yt-dlp
+instaloader
+pyyaml
+ffmpeg
+pillow
+pytesseract
+requests
+beautifulsoup4
+fastapi
+uvicorn
+openai-whisper 

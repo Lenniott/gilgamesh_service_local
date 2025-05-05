@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  downloader:
+    build: .
+    ports:
+      - "8500:8500"
+    restart: always
