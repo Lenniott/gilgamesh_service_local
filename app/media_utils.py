@@ -211,7 +211,8 @@ def download_media_and_metadata(url: str) -> Dict:
         source = 'youtube/tiktok'
         opts = {
             'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
-            'format': 'bestvideo+bestaudio/best',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
             'quiet': True,
             'noplaylist': True
         }
@@ -559,5 +560,3 @@ if __name__ == '__main__':
     print(f"Saved scenes to {os.path.join(result['temp_dir'], 'scenes.json')}")
     print(f"Saved ocr to {os.path.join(result['temp_dir'], 'ocr.json')}")
     
-    # Clean up temporary files
-    cleanup_temp_files(result['temp_dir']) 

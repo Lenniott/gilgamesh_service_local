@@ -1,31 +1,34 @@
-FROM python:3.11-slim
+# Use the official Python base image
+FROM python:3.9-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libsm6 \
-    libxext6 \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
+# Copy the requirements.txt file into the container
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install the Python dependencies
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
-# Copy application code
+# Copy the application code into the container
 COPY app/ ./app/
 
-# Create temp directory
-RUN mkdir -p app/temp
+# Add the app directory to PYTHONPATH
+ENV PYTHONPATH=/app
 
-# Expose port
+# Expose the port that the app will run on
 EXPOSE 8500
 
-# Run the application
-CMD ["python", "app/service.py"]
+# Run the FastAPI application using Uvicorn
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8500"]
