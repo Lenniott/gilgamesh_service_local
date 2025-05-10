@@ -6,7 +6,7 @@ import uvicorn
 import os
 
 # Import your actual functions
-from app.media_utils import download_media_and_metadata
+from app.media_utils import process_url
 from app.cleanup import cleanup_temp_folder
 from app.stitch_scenes import stitch_scenes
 
@@ -18,12 +18,12 @@ class DownloadRequest(BaseModel):
 class StitchRequest(BaseModel):
     json_path: str
 
-@app.post("/download")
+@app.post("/process")
 def download_handler(request: DownloadRequest):
     try:
         results = []
         for url in request.urls:
-            result = download_media_and_metadata(url)
+            result = process_url(url)
             results.append(result)
         return {"status": "success", "results": results}
     except Exception as e:
