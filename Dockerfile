@@ -1,26 +1,31 @@
 FROM python:3.11-slim
 
-# System dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    tesseract-ocr \
-    build-essential \
-    gcc \
-    libleptonica-dev \
-    libtesseract-dev \
+    libsm6 \
+    libxext6 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Set working directory
 WORKDIR /app
 
-# Copy requirements and install dependencies
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only app code into the container
-COPY app ./app
+# Copy application code
+COPY app/ ./app/
 
-# Ensure Python can see the app package
-ENV PYTHONPATH=/app
+# Create temp directory
+RUN mkdir -p app/temp
 
-# Start FastAPI with correct module path
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8500"]
+# Expose port
+EXPOSE 8500
+
+# Run the application
+CMD ["python", "app/service.py"]

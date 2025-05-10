@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from app.downloader import download_media
+from downloader import download_media
 
 
 app = FastAPI()
