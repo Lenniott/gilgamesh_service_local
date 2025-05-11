@@ -63,10 +63,11 @@ def cleanup_temp_files(temp_dir: str):
         except Exception as e:
             print(f"Could not remove frames folder {frames_folder}: {e}")
 
+    # Don't delete the video file until after blob generation
     for root, dirs, files in os.walk(temp_dir):
         for file in files:
             file_path = os.path.join(root, file)
-            if file == 'result.json':
+            if file == 'result.json' or file.endswith('.mp4'):  # Preserve video files
                 continue
             try:
                 os.remove(file_path)

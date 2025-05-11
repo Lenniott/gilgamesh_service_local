@@ -5,9 +5,8 @@ from app.downloaders import download_media_and_metadata
 from app.scene_detection import extract_scene_cuts_and_frames, get_video_duration
 from app.ocr_utils import ocr_image, EASYOCR_READER
 from app.transcription import transcribe_audio
-from app.video_processing import extract_and_downscale_scene
+from app.video_processing import extract_and_downscale_scene, cleanup_temp_files
 from app.utils import clean_text, resize_image_if_needed
-from app.video_processing import cleanup_temp_files
 
 DEFAULT_SCENE_THRESHOLD = 0.22
 
@@ -158,15 +157,28 @@ def process_url(url, threshold=DEFAULT_SCENE_THRESHOLD):
     print(f"Saved transcript to {os.path.join(result['temp_dir'], 'transcript.json')}")
     print(f"Saved scenes to {os.path.join(result['temp_dir'], 'scenes.json')}")
     print(f"Saved ocr to {os.path.join(result['temp_dir'], 'ocr.json')}")
-    cleanup_temp_files(result['temp_dir'])
+
     return output
+
+def process_and_cleanup(url, threshold=DEFAULT_SCENE_THRESHOLD):
+    # Get the initial result with temp_dir
+    initial_result = download_media_and_metadata(url)
+    temp_dir = initial_result['temp_dir']  # Store temp_dir before processing
+    
+    # Process the URL
+    result = process_url(url, threshold)
+    
+    # Clean up using the stored temp_dir
+    cleanup_temp_files(temp_dir)
+    
+    return result
 
 def main():
     if len(sys.argv) < 2:
         print('Usage: python media_utils.py <url> [threshold]')
         sys.exit(1)
     threshold = float(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_SCENE_THRESHOLD
-    process_url(sys.argv[1], threshold)
+    process_and_cleanup(sys.argv[1], threshold)
 
 if __name__ == '__main__':
     main()

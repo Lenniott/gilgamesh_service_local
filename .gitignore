@@ -1,1 +1,7 @@
 .env
+temp/
+test.json
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
