@@ -120,13 +120,12 @@ def process_url(url, threshold=DEFAULT_SCENE_THRESHOLD):
         for idx, scene in enumerate(scenes):
             start = scene['start']
             end = scene['end']
-            scene_file_small = video_path.replace('.mp4', f'_scene{idx+1}.mp4').replace('.mkv', f'_scene{idx+1}.mkv').replace('.webm', f'_scene{idx+1}.webm')
             try:
-                extract_and_downscale_scene(video_path, start, end, scene_file_small, target_width=480)
+                scene_base64 = extract_and_downscale_scene(video_path, start, end, target_width=480)
             except Exception as e:
                 print(f"Warning: Could not extract/downscale scene {idx+1} from {video_path}: {e}")
-                scene_file_small = None
-            scene['scene_file_small'] = scene_file_small
+                scene_base64 = None
+            scene['video_base64'] = scene_base64
         video_entry = {
             'scenes': video_entry['scenes'],
             'link': result['link'].split('?')[0].rstrip('/') + ('?img_index=' + video_path.split('_')[-1].split('.')[0] if '_UTC_' in video_path else '')

@@ -9,6 +9,7 @@ import os
 from app.media_utils import process_url
 from app.cleanup import cleanup_temp_folder
 from app.stitch_scenes import stitch_scenes
+from app.downloaders import download_media_and_metadata
 
 app = FastAPI()
 
@@ -34,6 +35,14 @@ def cleanup_handler():
     try:
         cleanup_temp_folder()
         return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/download")
+def download_media_and_metadata(url: str):
+    try:
+        result = download_media_and_metadata(url)
+        return {"status": "success", "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

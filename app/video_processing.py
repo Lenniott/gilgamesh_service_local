@@ -1,20 +1,42 @@
 import subprocess
 import os
+import base64
+import tempfile
 
-def extract_and_downscale_scene(input_video, start, end, output_path, target_width=480):
-    cmd = [
-        'ffmpeg', '-y', '-i', input_video,
-        '-ss', str(start),
-        '-to', str(end),
-        '-vf', f'scale={target_width}:-2',
-        '-c:v', 'libx264',
-        '-crf', '24',
-        '-preset', 'medium',
-        '-movflags', '+faststart',
-        '-an',
-        output_path
-    ]
-    subprocess.run(cmd, check=True)
+def extract_and_downscale_scene(input_video, start, end, target_width=480):
+    """
+    Extract a scene from a video and return it as a base64 blob.
+    """
+    # Create a temporary file for the scene
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
+        temp_path = temp_file.name
+
+    try:
+        # Extract and downscale the scene
+        cmd = [
+            'ffmpeg', '-y', '-i', input_video,
+            '-ss', str(start),
+            '-to', str(end),
+            '-vf', f'scale={target_width}:-2',
+            '-c:v', 'libx264',
+            '-crf', '24',
+            '-preset', 'medium',
+            '-movflags', '+faststart',
+            '-an',
+            temp_path
+        ]
+        subprocess.run(cmd, check=True)
+
+        # Read the file and convert to base64
+        with open(temp_path, 'rb') as f:
+            video_bytes = f.read()
+            base64_blob = base64.b64encode(video_bytes).decode('utf-8')
+        
+        return base64_blob
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 def cleanup_temp_files(temp_dir: str):
     print("\nCleaning up temporary files...")
@@ -44,7 +66,7 @@ def cleanup_temp_files(temp_dir: str):
     for root, dirs, files in os.walk(temp_dir):
         for file in files:
             file_path = os.path.join(root, file)
-            if file == 'result.json' or ('_scene' in file and file.endswith('.mp4')):
+            if file == 'result.json':
                 continue
             try:
                 os.remove(file_path)
