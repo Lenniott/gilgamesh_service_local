@@ -127,6 +127,7 @@ def process_url(url, threshold=DEFAULT_SCENE_THRESHOLD):
             scene['video_base64'] = scene_base64
         video_entry = {
             'scenes': video_entry['scenes'],
+            'transcript': video_entry['transcript'],
             'link': result['link'].split('?')[0].rstrip('/') + ('?img_index=' + video_path.split('_')[-1].split('.')[0] if '_UTC_' in video_path else '')
         }
         videos_output_with_scene_files.append(video_entry)
@@ -136,6 +137,7 @@ def process_url(url, threshold=DEFAULT_SCENE_THRESHOLD):
         'tags': result['tags'],
         'description': result['description'],
         'source': result['source'],
+        'transcript': transcript,
         'videos': videos_output_with_scene_files,
         'images': images,
         'media_count': {
