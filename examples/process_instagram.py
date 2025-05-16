@@ -6,120 +6,71 @@ from app.services.download import AsyncDownloadService
 from app.services.scene_processing import SceneProcessingService
 from app.services.transcription import TranscriptionService
 from app.models.common import VideoMetadata, ProcessingStatusEnum
+from app.core.errors import ProcessingError
 
-async def process_instagram_reel(url: str, output_dir: str = "output"):
+async def process_video(url: str) -> None:
     """
-    Process an Instagram reel to detect scenes and transcribe speech.
+    Process a video from a URL (Instagram or YouTube).
     
     Args:
-        url: Instagram reel URL
-        output_dir: Directory to save output files
+        url: URL of the video to process
     """
-    print(f"Processing Instagram reel: {url}")
-    
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-    
-    print("1. Downloading reel...")
-    
-    # Initialize download service
-    download_service = AsyncDownloadService()
+    print(f"Processing video: {url}")
     
     try:
-        # Download the reel
-        download_result = await download_service.download_media(url)
-        
-        if not download_result.files:
-            print("No video files found in the download")
-            return
-            
-        # Get the video file (should be the first file)
-        video_path = download_result.files[0]
-        print(f"Downloaded to: {video_path}")
-        
         # Initialize services
+        download_service = AsyncDownloadService()
         scene_service = SceneProcessingService(
-            threshold=0.22,  # Scene detection sensitivity (0.0 to 1.0)
-            frame_delay=0.5,  # Wait 0.5s after scene cut before taking frame
-            target_width=640,  # Downscale to 640px width
+            threshold=0.22,  # Scene detection threshold
+            target_width=640,  # Target width for optimized video
             target_bitrate="800k"  # Target bitrate for compression
         )
         
-        transcription_service = TranscriptionService(
-            model_size="base"  # Use base model for faster processing
-        )
+        # 1. Download video
+        print("1. Downloading video...")
+        download_result = await download_service.download_media(url)
         
-        # Get video metadata
-        metadata = VideoMetadata(
-            duration=download_result.metadata.duration,  # Use duration from download result
-            width=None,
-            height=None,
-            format="mp4",
-            fps=None,
-            size_bytes=os.path.getsize(video_path)
-        )
+        if not download_result.video_files:
+            raise ProcessingError("No video files found in download result")
+            
+        video_path = download_result.video_files[0]
+        print(f"Downloaded to: {video_path}")
         
+        # 2. Process video
         print("\n2. Detecting scenes...")
+        result = await scene_service.process_video(video_path)
         
-        # Detect scenes
-        scene_result = await scene_service.process_video(video_path, metadata)
-        scenes = scene_result["scenes"]
-        print(f"Found {len(scenes)} scenes:")
-        for i, scene in enumerate(scenes, 1):
-            print(f"  Scene {i}: {scene['start']:.2f}s - {scene['end']:.2f}s")
+        # 3. Print results
+        print("\n3. Processing complete!")
+        print(f"Found {len(result['scenes'])} scenes")
+        print(f"Video metadata: {result['metadata']}")
+        print(f"Optimized video size: {result['video_size'] / 1024 / 1024:.2f} MB")
+        
+        # Print scene information
+        print("\nScene breakdown:")
+        for i, scene in enumerate(result['scenes'], 1):
+            print(f"\nScene {i}:")
+            print(f"  Time: {scene['start_time']:.2f}s - {scene['end_time']:.2f}s")
             if scene['text']:
-                print(f"    Text: {scene['text']}")
-            print(f"    Confidence: {scene['confidence']:.1%}")
-        
-        print("\n3. Transcribing speech...")
-        
-        # Track progress
-        async def progress_callback(progress: float):
-            print(f"  Progress: {progress:.1f}%", end="\r")
-        
-        # Transcribe video
-        transcript = await transcription_service.transcribe_video(
-            video_path,
-            progress_callback=progress_callback
-        )
-        
-        print("\nTranscription complete!")
-        print("\nTranscript:")
-        for segment in transcript:
-            print(f"  {segment.start:.2f}s - {segment.end:.2f}s: {segment.text}")
-        
+                print(f"  Text: {scene['text']}")
+            print(f"  Confidence: {scene['confidence']:.2f}")
+            
         # Save results
-        output = {
-            "url": url,
-            "title": download_result.metadata.title,
-            "description": download_result.metadata.description,
-            "tags": download_result.metadata.tags,
-            "upload_date": download_result.metadata.upload_date,
-            "scenes": scenes,
-            "transcript": [{"start": s.start, "end": s.end, "text": s.text} for s in transcript],
-            "metadata": scene_result["metadata"],
-            "video_base64": scene_result["video_base64"]
-        }
-        
-        output_path = os.path.join(output_dir, "result.json")
-        with open(output_path, "w") as f:
-            json.dump(output, f, indent=2)
-        
+        output_path = os.path.join(os.path.dirname(video_path), "scenes.json")
         print(f"\nResults saved to: {output_path}")
-        print(f"Video size: {scene_result['metadata']['size_bytes'] / 1024 / 1024:.1f} MB")
-        print(f"Resolution: {scene_result['metadata']['resolution']}")
         
     except Exception as e:
-        print(f"Error processing reel: {str(e)}")
-    finally:
-        # Cleanup temporary files
-        await download_service.cleanup_old_downloads(max_age_hours=0)
+        print(f"Error processing video: {str(e)}")
+        raise
 
-if __name__ == "__main__":
+def main():
     import sys
     if len(sys.argv) != 2:
-        print("Usage: python process_instagram.py <instagram_reel_url>")
+        print("Usage: python process_video.py <video_url>")
         sys.exit(1)
         
     url = sys.argv[1]
-    asyncio.run(process_instagram_reel(url)) 
+    asyncio.run(process_video(url))
+
+if __name__ == "__main__":
+    main() 
