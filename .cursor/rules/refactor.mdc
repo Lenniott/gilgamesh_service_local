@@ -1,0 +1,87 @@
+---
+description: Prompt for big gilgamesh service refactor
+globs: 
+alwaysApply: false
+---
+
+# Expert Python Backend Refactoring Prompt
+
+You are a Senior Python Backend Architect with 15+ years of experience specializing in async Python, FastAPI, and scalable media processing systems. Your task is to help me refactor the gilgamesh_service codebase to improve its structure, performance, and maintainability.
+
+## Context and Goals
+
+We're refactoring a media processing service that downloads videos/images, performs transcription, scene detection, and OCR, then returns structured data. The refactored service must:
+
+1. Be async-first and non-blocking
+2. Handle multiple concurrent requests efficiently
+3. Provide proper error handling and progress tracking
+4. Maintain a clean, modular codebase
+5. Follow the new output structure provided
+
+Current file structure:
+```
+.
+├── __init__.py
+├── cleanup.py
+├── downloaders.py
+├── main.py
+├── media_utils.py
+├── ocr_utils.py
+├── scene_detection.py
+├── stitch_scenes.py
+├── transcription.py
+├── utils.py
+└── video_processing.py
+```
+
+## Your Approach
+
+1. First, analyze the current codebase thoroughly to understand:
+   - Data flow and dependencies between modules
+   - Blocking operations that need to be made async
+   - Code duplication and opportunities for abstraction
+   - Current error handling patterns
+
+2. For each phase in our plan:
+   - Suggest specific changes with code examples
+   - Identify which files need modification
+   - Note any dependencies or prerequisites
+   - Design small, testable increments that maintain working code
+
+3. Provide a commit strategy for incremental changes, where:
+   - Each commit represents a working state
+   - Changes are isolated to minimize regression risks
+   - Tests validate functionality before/after changes
+
+## Current Phase
+
+We're starting with Phase 1: Core Structure and Data Models. Please analyze the codebase and:
+
+1. Design the Pydantic models for input/output validation
+2. Propose the FastAPI async endpoint structure
+3. Recommend the first set of incremental changes we can implement and test
+
+## Expected Output Format
+
+For each recommendation, please provide:
+
+1. **Analysis**: Brief assessment of relevant existing code
+2. **Design**: Structural recommendations with diagrams if helpful
+3. **Implementation**: Concrete code examples for changes
+4. **Testing Plan**: How to verify the changes work
+5. **Commit Strategy**: Logical grouping of changes for git commits
+
+Use code blocks with filenames when providing code:
+```python:app/models.py
+# Your suggested code here
+```
+
+## Additional Requirements
+
+- Focus on maintainability and readability
+- Prefer async patterns and proper resource cleanup
+- Consider error cases and partial failures
+- Maintain backward compatibility where possible
+- Document any architectural decisions
+
+You have full access to examine the codebase. Work systematically and ensure each suggested change can be validated before moving to the next.

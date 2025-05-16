@@ -1,9 +1,10 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 import os
+from app.api import router
 
 # Import your actual functions
 from app.media_utils import process_url, process_and_cleanup
@@ -12,7 +13,12 @@ from app.stitch_scenes import stitch_scenes_to_base64
 from app.downloaders import download_media_and_metadata
 from app.video_processing import cleanup_temp_files
 
-app = FastAPI()
+app = FastAPI(title="Gilgamesh Media Processing Service (Async Stub)", version="0.1.0 (async stub)")
+
+# (Optional) Add a dummy root endpoint (GET /) that returns a simple welcome message.
+@app.get("/", status_code=status.HTTP_200_OK, summary="Welcome (dummy root endpoint).")
+async def root():
+    return {"message": "Welcome to Gilgamesh Media Processing Service (Async Stub)."}
 
 class DownloadRequest(BaseModel):
     urls: List[str]
@@ -83,6 +89,9 @@ def stitch_handler(request: StitchRequest):
         print("Traceback:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+# Include our async router (which defines /api/process and /api/status endpoints).
+app.include_router(router)
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8500)
