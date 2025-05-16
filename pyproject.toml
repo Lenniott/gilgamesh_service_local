@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "."
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+markers = [
+    "integration: mark integration tests (e.g. download integration)"
+]
+
+[project]
+name = "gilgamesh_service"
+version = "0.1.0"
+description = "Media processing service"
+requires-python = ">=3.8" 

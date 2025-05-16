@@ -88,14 +88,24 @@ These tasks require the completion of all core service layers and orchestration.
   - [x] Add temporary storage management
   - [x] Add proper error handling
   - [x] Implement cleanup mechanisms
-- [ ] Implement new scene processing pipeline
-  - [ ] Refactor scene detection to be more efficient
-  - [ ] Update frame extraction logic
-  - [ ] Modify OCR processing to work with new structure
-- [ ] Update transcription system
-  - [ ] Ensure async compatibility
-  - [ ] Add proper error handling
-  - [ ] Implement progress tracking
+- [x] Implement new scene processing pipeline
+  - [x] Refactor scene detection to be more efficient
+  - [x] Update frame extraction logic
+  - [x] Modify OCR processing to work with new structure
+  - [x] Add async support for all operations
+  - [x] Implement proper error handling
+- [x] Update transcription system
+  - [x] Ensure async compatibility
+  - [x] Add proper error handling
+  - [x] Implement progress tracking
+  - [x] Add support for different model sizes
+  - [x] Implement resource cleanup
+
+Additional tasks completed:
+- [x] Add proper dependency management for new services
+- [x] Implement thread pool for CPU-intensive operations
+- [x] Add progress tracking for long-running operations
+- [x] Create proper error types and handling
 
 ## Phase 3: Performance and Scalability
 - [ ] Implement async processing

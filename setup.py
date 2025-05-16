@@ -1,0 +1,32 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="gilgamesh_service",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "yt-dlp",
+        "instaloader",
+        "pyyaml",
+        "ffmpeg",
+        "pillow",
+        "pytesseract>=0.3.10",
+        "requests",
+        "beautifulsoup4",
+        "fastapi==0.104.1",
+        "uvicorn==0.24.0",
+        "python-multipart==0.0.6",
+        "opencv-python>=4.8.0",
+        "numpy>=1.24.0",
+        "Pillow>=10.0.0",
+        "moviepy",
+        "openai-whisper>=20231117",
+        "easyocr",
+        "pytest==8.0.0",
+        "pytest-asyncio==0.23.5",
+        "pytest-cov==4.1.0",
+        "httpx==0.26.0",
+        "pydantic==2.6.1"
+    ],
+    python_requires=">=3.8",
+) 

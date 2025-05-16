@@ -41,7 +41,8 @@ Current file structure:
    - Blocking operations that need to be made async
    - Code duplication and opportunities for abstraction
    - Current error handling patterns
-
+   - the functions all work, so take your first lesson from them
+   
 2. For each phase in our plan:
    - Suggest specific changes with code examples
    - Identify which files need modification

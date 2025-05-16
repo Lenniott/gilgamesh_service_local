@@ -1,6 +1,8 @@
 import pytest
 import asyncio
 import os
+import tempfile
+from pathlib import Path
 from typing import Generator
 from datetime import datetime
 from app.models.common import (
@@ -12,8 +14,6 @@ from app.models.common import (
     MediaType,
     MediaItem
 )
-
-pytest.register_marker("integration", "mark integration tests (e.g. download integration)")
 
 @pytest.fixture(scope="session")
 def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
@@ -101,4 +101,47 @@ def sample_process_response(sample_video_result, sample_media_item, sample_proce
         videos=[sample_video_result],
         images=[sample_media_item],
         processing_status=sample_processing_status
-    ) 
+    )
+
+@pytest.fixture(scope="session")
+def temp_dir():
+    """Create a temporary directory for test files."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        yield tmp_dir
+
+@pytest.fixture(autouse=True)
+def mock_environment(monkeypatch):
+    """Set up test environment variables."""
+    # Mock environment variables that might be needed
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "true")
+    
+    # Create a temporary directory for test files
+    test_temp_dir = tempfile.mkdtemp()
+    monkeypatch.setenv("TEMP_DIR", test_temp_dir)
+    
+    yield
+    
+    # Cleanup
+    if os.path.exists(test_temp_dir):
+        for root, dirs, files in os.walk(test_temp_dir, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir(test_temp_dir)
+
+@pytest.fixture
+def mock_video_file(tmp_path):
+    """Create a mock video file for testing."""
+    video_path = tmp_path / "test_video.mp4"
+    with open(video_path, 'wb') as f:
+        f.write(b'mock video content')
+    return str(video_path)
+
+@pytest.fixture
+def mock_audio_file(tmp_path):
+    """Create a mock audio file for testing."""
+    audio_path = tmp_path / "test_audio.mp3"
+    with open(audio_path, 'wb') as f:
+        f.write(b'mock audio content')
+    return str(audio_path) 

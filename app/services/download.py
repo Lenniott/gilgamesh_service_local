@@ -104,52 +104,37 @@ class AsyncDownloadService:
             raise DownloadError(f"YouTube/TikTok download failed: {str(e)}")
 
     async def _download_instagram(self, url: str, temp_dir: str) -> DownloadResult:
-        """Download media from Instagram."""
+        """Download media from Instagram using yt-dlp."""
         loop = asyncio.get_event_loop()
-        clean_url = url.split('?')[0].rstrip('/')
         
         def _download():
-            L = instaloader.Instaloader(
-                dirname_pattern=temp_dir,
-                download_videos=True,
-                download_video_thumbnails=True,
-                download_geotags=False,
-                download_comments=False,
-                save_metadata=False,
-                post_metadata_txt_pattern=''
-            )
-            shortcode = clean_url.split('/')[-1]
-            post = instaloader.Post.from_shortcode(L.context, shortcode)
-            L.download_post(post, target=temp_dir)
-            # Create mock files for testing
-            if os.getenv('PYTEST_CURRENT_TEST'):
-                for i in range(3):
-                    mock_file = os.path.join(temp_dir, f'test_post_{i}.jpg')
-                    with open(mock_file, 'w') as f:
-                        f.write('test content')
-            return post
+            opts = {
+                'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'merge_output_format': 'mp4',
+                'quiet': True,
+                'noplaylist': True
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return info
 
         try:
-            post = await loop.run_in_executor(None, _download)
+            info = await loop.run_in_executor(None, _download)
             files = []
             for root, _, filenames in os.walk(temp_dir):
                 for filename in filenames:
-                    if filename.lower().endswith(('.mp4', '.mkv', '.webm', '.jpg', '.jpeg', '.png')):
+                    if filename.lower().endswith(('.mp4', '.mkv', '.webm')):
                         files.append(os.path.join(root, filename))
-            
-            # Improved carousel detection:
-            video_files = [f for f in files if f.lower().endswith(('.mp4', '.mkv', '.webm'))]
-            image_files = [f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-            is_carousel = (len(video_files) + len(image_files) > 2) or (len(video_files) > 1) or (len(image_files) > 1)
             
             metadata = MediaMetadata(
                 source='instagram',
-                title='',  # Instagram posts don't have titles
-                description=post.caption or '',
-                tags=[t.strip('#') for t in (post.caption or '').split() if t.startswith('#')],
-                upload_date=post.date_local.strftime('%Y%m%d') if post.date_local else '',
-                duration=0,  # Instagram doesn't provide duration
-                is_carousel=is_carousel
+                title=info.get('title', ''),
+                description=info.get('description', ''),
+                tags=info.get('tags', []) or [],
+                upload_date=info.get('upload_date', ''),
+                duration=info.get('duration', 0),
+                is_carousel=False
             )
             
             return DownloadResult(
