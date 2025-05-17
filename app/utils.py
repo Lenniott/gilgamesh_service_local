@@ -23,3 +23,9 @@ def resize_image_if_needed(image_path: str, max_width: int = 800):
         image.save(resized_path)
         return resized_path
     return image_path
+
+def is_valid_url(url: str) -> bool:
+    url = url.lower()
+    return any(domain in url for domain in [
+        'instagram.com', 'youtube.com', 'youtu.be', 'tiktok.com'
+    ])

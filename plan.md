@@ -31,9 +31,9 @@
   - [ ] Convert downloaders to async
   - [ ] Update FastAPI handlers (partially done)
   - [ ] Implement asyncio.to_thread for blocking calls
-- [ ] Background Task Cleanup
+- [x] Background Task Cleanup
   - [x] Implement FastAPI BackgroundTasks (structure in place)
-  - [ ] Test cleanup reliability
+  - [x] Test cleanup reliability
 - [ ] Rate Limiting
   - [ ] Add asyncio.Queue for request management
   - [ ] Implement concurrency limits
@@ -86,4 +86,5 @@
 5. Added type hints and docstrings for better code clarity
 6. Added `encode_base64` option to control media encoding in responses
 7. Implemented URL-based caching with file storage and TTL
-8. Added `cleanup_temp` option to control temporary file and cache cleanup 
+8. Added `cleanup_temp` option to control temporary file and cache cleanup
+9. Verified background task cleanup reliability with comprehensive tests 
