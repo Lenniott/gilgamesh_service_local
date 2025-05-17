@@ -205,5 +205,10 @@ def stitch_handler(request: StitchRequest):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/health")
+async def health_check() -> Dict:
+    """Health check endpoint to verify the service is running."""
+    return {"status": "healthy", "service": "gilgamesh"}
+
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8500, reload=True)

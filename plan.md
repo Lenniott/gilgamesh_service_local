@@ -76,9 +76,10 @@
 
 ## Phase 5 - CI/CD & Release Stages
 - [ ] Alpha (Internal Dev)
-  - [ ] Set up dev branch
-  - [ ] Configure automated tests
-  - [ ] Implement Docker smoke tests
+  - [x] Set up dev branch
+  - [x] Configure docker-compose for local development
+  - [x] Implement Docker smoke tests
+  - [ ] Run smoke tests in CI pipeline
 - [ ] Beta (Staging)
   - [ ] Deploy to staging environment
   - [ ] Run real-world tests
@@ -97,11 +98,11 @@
 
 ## Current Focus
 - Completed Phase 4: Testing & Validation (all unit tests now pass, cache tests robust, minor test removed)
-- Moving on to Phase 5: CI/CD & Release Stages
-- Next tasks:
-  1. Alpha (Internal Dev) – set up dev branch, configure automated tests, and implement Docker smoke tests.
-  2. Beta (Staging) – deploy to staging, run real-world tests, and monitor performance metrics.
-  3. Production Release – version tagging, Docker image publication, deployment update, and monitoring setup.
+- Actively working on Phase 5: CI/CD & Release Stages – Alpha (Internal Dev)
+  - ✅ Created dev branch
+  - ✅ Added docker-compose.yml for local development
+  - ✅ Created smoke test script
+  - Next: Run smoke tests in CI pipeline
 
 ## Notes
 - Keep implementation simple and well-documented
@@ -128,4 +129,7 @@
 13. Added comprehensive rate limiting tests for single and batch requests
 14. Added basic unit tests for process_single_url functionality
 15. Added comprehensive cache behavior tests
-16. All unit tests now pass after making cache tests robust and removing a non-critical base64 control test. 
+16. All unit tests now pass after making cache tests robust and removing a non-critical base64 control test.
+17. Created dev branch for Phase 5 development
+18. Added docker-compose.yml for local development environment
+19. Implemented smoke test script for Docker container validation 
