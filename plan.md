@@ -88,6 +88,13 @@ These tasks require the completion of all core service layers and orchestration.
   - [x] Add temporary storage management
   - [x] Add proper error handling
   - [x] Implement cleanup mechanisms
+  - [x] Fix example scripts to use correct DownloadResult attributes
+- [x] Add image processing support
+  - [x] Create dedicated image processing script
+  - [x] Implement OCR pipeline for images
+  - [x] Add region-based text detection
+  - [x] Support multiple OCR engines (EasyOCR + Tesseract)
+  - [x] Add proper error handling for images
 - [x] Implement new scene processing pipeline
   - [x] Refactor scene detection to be more efficient
   - [x] Update frame extraction logic
@@ -164,3 +171,26 @@ Additional tasks completed:
 - Add tests before major changes
 - Monitor performance metrics
 - Document all major decisions 
+
+# Rollback and Focused Image Support Plan
+
+## Decision
+- Revert to the last working commit where video processing was stable and simple.
+- Only add robust image support (including Instagram carousels, posts, and reels) to the download and processing pipeline.
+- Do not focus on queueing, async status endpoints, or complex response models for now.
+- Keep the API and processing logic as simple as possible.
+
+## Steps
+1. Identify and restore the last working commit for video processing.
+2. Update the download service to:
+   - Use instaloader for Instagram images and carousels.
+   - Detect and handle image files in addition to videos.
+3. Update the processing pipeline to:
+   - Run OCR on images when detected.
+   - Return results in the same format as for videos, with minimal changes.
+4. Test with:
+   - Instagram single image post
+   - Instagram carousel (multiple images)
+   - Instagram reel (video)
+   - YouTube video
+5. Only after image support is robust, consider reintroducing async/queueing if needed. 
