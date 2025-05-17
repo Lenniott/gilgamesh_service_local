@@ -1,6 +1,8 @@
 import os
 import sys
 import json
+import uuid
+from typing import Dict, List, Optional, Union
 from app.downloaders import download_media_and_metadata
 from app.scene_detection import extract_scene_cuts_and_frames, get_video_duration
 from app.ocr_utils import ocr_image, EASYOCR_READER
@@ -10,170 +12,177 @@ from app.utils import clean_text, resize_image_if_needed
 
 DEFAULT_SCENE_THRESHOLD = 0.22
 
-def process_url(url, threshold=DEFAULT_SCENE_THRESHOLD):
-    result = download_media_and_metadata(url)
-    print(result)
-
-    video_files = [f for f in result['files'] if f.lower().endswith(('.mp4', '.mkv', '.webm'))]
-    image_files = [f for f in result['files'] if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-
-    video_thumbnails = {}
-    for video in video_files:
-        base_name = os.path.splitext(video)[0]
-        for img in image_files:
-            if img.startswith(base_name):
-                video_thumbnails[video] = img
-                break
-
-    print(f"\nFound {len(video_files)} videos and {len(image_files)} images")
-
-    videos_output = []
-    all_ocr_results = []
-    all_transcript_segments = []
-
-    for video_file in video_files:
-        print(f"\nProcessing video: {video_file}")
-        video_scenes = []
-        video_ocr_results = []
-        video_transcript_segments = []
-        try:
-            video_name = os.path.splitext(os.path.basename(video_file))[0]
-            frames_dir = os.path.join(result['temp_dir'], 'frames', video_name)
-            os.makedirs(frames_dir, exist_ok=True)
-            thumbnail = None
-            for img in image_files:
-                if img.startswith(video_name):
-                    thumbnail = img
-                    break
-            try:
-                transcript = transcribe_audio(video_file)
-                video_transcript_segments.extend(transcript)
-            except Exception as e:
-                print(f"Warning: Could not transcribe video {video_file}: {e}")
-                transcript = []
-            try:
-                scene_cuts = extract_scene_cuts_and_frames(video_file, frames_dir, threshold=threshold)
-                print('Scene cuts:', [t for t, _ in scene_cuts])
-                print('Extracted frames:', [frame for _, frame in scene_cuts])
-            except Exception as e:
-                print(f"Warning: Could not extract scenes from video {video_file}: {e}")
-                scene_cuts = []
-            duration = get_video_duration(video_file)
-            if not scene_cuts and thumbnail:
-                onscreen_text = ocr_image(thumbnail)
-                video_scenes.append({
-                    'start': 0,
-                    'end': duration if duration else 0,
-                    'transcript': [],
-                    'onscreenText': onscreen_text,
-                    'thumbnail': thumbnail
-                })
-                video_ocr_results.append({'frame': thumbnail, 'ocr': onscreen_text})
-            else:
-                for i, (start, frame_path) in enumerate(scene_cuts):
-                    end = scene_cuts[i+1][0] if i+1 < len(scene_cuts) else duration
-                    scene_transcript = [
-                        seg['text'] for seg in transcript
-                        if not (seg['end'] <= start or (end is not None and seg['start'] >= end))
-                    ]
-                    onscreen_text = ocr_image(frame_path) if frame_path else ''
-                    video_scenes.append({
-                        'start': start,
-                        'end': end,
-                        'transcript': scene_transcript,
-                        'onscreenText': onscreen_text
-                    })
-                    if frame_path:
-                        video_ocr_results.append({'frame': frame_path, 'ocr': onscreen_text})
-        except Exception as e:
-            print(f"Error processing video {video_file}: {e}")
-        videos_output.append({
-            'video': video_file,
-            'scenes': video_scenes,
-            'transcript': video_transcript_segments,
-            'ocr': video_ocr_results
-        })
-        all_ocr_results.extend(video_ocr_results)
-        all_transcript_segments.extend(video_transcript_segments)
-
-    used_thumbnails = set(video_thumbnails.values())
-    remaining_images = [img for img in image_files if img not in used_thumbnails]
-    images = []
-    for image_file in remaining_images:
-        print(f"\nProcessing image: {image_file}")
-        try:
-            ocr_text = ocr_image(image_file, reader=EASYOCR_READER)
-            images.append({
-                'link': result['link'],
-                'text': ocr_text,
-                'source': image_file
-            })
-            all_ocr_results.append({'image': image_file, 'ocr': ocr_text})
-        except Exception as e:
-            print(f"Error processing image {image_file}: {e}")
-
-    videos_output_with_scene_files = []
-    for video_entry in videos_output:
-        video_path = video_entry['video']
-        scenes = video_entry['scenes']
-        for idx, scene in enumerate(scenes):
-            start = scene['start']
-            end = scene['end']
-            try:
-                scene_base64 = extract_and_downscale_scene(video_path, start, end, target_width=480)
-            except Exception as e:
-                print(f"Warning: Could not extract/downscale scene {idx+1} from {video_path}: {e}")
-                scene_base64 = None
-            scene['video_base64'] = scene_base64
-        video_entry = {
-            'scenes': video_entry['scenes'],
-            'transcript': video_entry['transcript'],
-            'link': result['link'].split('?')[0].rstrip('/') + ('?img_index=' + video_path.split('_')[-1].split('.')[0] if '_UTC_' in video_path else '')
+def process_single_url(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD, encode_base64: bool = True) -> Dict:
+    """
+    Process a single URL and return a standardized response.
+    
+    Args:
+        url: The URL to process (Instagram post/carousel/reel or YouTube)
+        threshold: Scene detection threshold (default: 0.22)
+        encode_base64: Whether to include base64-encoded media in the response (default: True)
+        
+    Returns:
+        Dict containing:
+        {
+            "url": str,
+            "title": str,
+            "description": str,
+            "tags": List[str],
+            "videos": Optional[List[Dict]],  # For posts with videos/reels
+            "images": Optional[List[Dict]]   # For posts with images
         }
-        videos_output_with_scene_files.append(video_entry)
-
-    output = {
-        'link': result['link'],
-        'tags': result['tags'],
-        'description': result['description'],
-        'source': result['source'],
-        'transcript': transcript,
-        'videos': videos_output_with_scene_files,
-        'images': images,
-        'media_count': {
-            'videos': len(video_files),
-            'images': len(remaining_images)
+        
+    Raises:
+        Exception: If processing fails for any reason
+    """
+    # Create a unique temp directory for this URL
+    temp_dir = os.path.join(os.path.dirname(__file__), 'temp', str(uuid.uuid4()))
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    try:
+        # Download media and metadata
+        result = download_media_and_metadata(url)
+        result['temp_dir'] = temp_dir  # Override temp_dir with our UUID-based one
+        
+        # Process media files
+        video_files = [f for f in result['files'] if f.lower().endswith(('.mp4', '.mkv', '.webm'))]
+        image_files = [f for f in result['files'] if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        
+        # Process videos
+        videos_output = []
+        for video_file in video_files:
+            video_result = process_video(video_file, result, threshold, encode_base64)
+            if video_result:
+                videos_output.append(video_result)
+        
+        # Process images
+        images_output = []
+        for image_file in image_files:
+            image_result = process_image(image_file, result, encode_base64)
+            if image_result:
+                images_output.append(image_result)
+        
+        # Build final response
+        response = {
+            "url": url,
+            "title": result.get('title', ''),
+            "description": result.get('description', ''),
+            "tags": result.get('tags', []),
         }
-    }
+        
+        if videos_output:
+            response["videos"] = videos_output
+        if images_output:
+            response["images"] = images_output
+            
+        return response
+        
+    except Exception as e:
+        # Clean up temp directory on error
+        cleanup_temp_files(temp_dir)
+        raise e
 
-    with open(os.path.join(result['temp_dir'], 'result.json'), 'w') as f:
-        json.dump(output, f, indent=2)
-    with open(os.path.join(result['temp_dir'], 'transcript.json'), 'w') as f:
-        json.dump(all_transcript_segments, f, indent=2)
-    with open(os.path.join(result['temp_dir'], 'scenes.json'), 'w') as f:
-        json.dump(videos_output_with_scene_files, f, indent=2)
-    with open(os.path.join(result['temp_dir'], 'ocr.json'), 'w') as f:
-        json.dump(all_ocr_results, f, indent=2)
+def process_video(video_file: str, result: Dict, threshold: float, encode_base64: bool = True) -> Optional[Dict]:
+    """Process a single video file and return its data."""
+    try:
+        video_name = os.path.splitext(os.path.basename(video_file))[0]
+        frames_dir = os.path.join(result['temp_dir'], 'frames', video_name)
+        os.makedirs(frames_dir, exist_ok=True)
+        
+        # Get transcript
+        try:
+            transcript = transcribe_audio(video_file)
+        except Exception as e:
+            print(f"Warning: Could not transcribe video {video_file}: {e}")
+            transcript = []
+            
+        # Get scenes
+        try:
+            scene_cuts = extract_scene_cuts_and_frames(video_file, frames_dir, threshold=threshold)
+        except Exception as e:
+            print(f"Warning: Could not extract scenes from video {video_file}: {e}")
+            scene_cuts = []
+            
+        # Process scenes
+        scenes = []
+        for start, frame in scene_cuts:
+            end = get_video_duration(video_file) if start == scene_cuts[-1][0] else scene_cuts[scene_cuts.index((start, frame)) + 1][0]
+            
+            # Get OCR text for the frame
+            try:
+                ocr_text = ocr_image(frame, reader=EASYOCR_READER)
+            except Exception as e:
+                print(f"Warning: Could not OCR frame {frame}: {e}")
+                ocr_text = ""
+                
+            scene_data = {
+                "start": start,
+                "end": end,
+                "text": ocr_text,
+                "confidence": 1.0,  # TODO: Add actual confidence from OCR
+            }
+            
+            # Only include video data if encode_base64 is True
+            if encode_base64:
+                try:
+                    scene_base64 = extract_and_downscale_scene(video_file, start, end, target_width=480)
+                    scene_data["video"] = scene_base64
+                except Exception as e:
+                    print(f"Warning: Could not extract scene {start}-{end}: {e}")
+                    scene_data["video"] = None
+                
+            scenes.append(scene_data)
+            
+        return {
+            "id": str(uuid.uuid4()),
+            "scenes": scenes,
+            "transcript": transcript
+        }
+        
+    except Exception as e:
+        print(f"Error processing video {video_file}: {e}")
+        return None
 
-    print(f"\nSaved result to {os.path.join(result['temp_dir'], 'result.json')}")
-    print(f"Saved transcript to {os.path.join(result['temp_dir'], 'transcript.json')}")
-    print(f"Saved scenes to {os.path.join(result['temp_dir'], 'scenes.json')}")
-    print(f"Saved ocr to {os.path.join(result['temp_dir'], 'ocr.json')}")
+def process_image(image_file: str, result: Dict, encode_base64: bool = True) -> Optional[Dict]:
+    """Process a single image file and return its data."""
+    try:
+        ocr_text = ocr_image(image_file, reader=EASYOCR_READER)
+        image_data = {
+            "text": ocr_text
+        }
+        
+        # Only include base64 data if encode_base64 is True
+        if encode_base64:
+            try:
+                with open(image_file, 'rb') as f:
+                    import base64
+                    image_data["base64"] = base64.b64encode(f.read()).decode('utf-8')
+            except Exception as e:
+                print(f"Warning: Could not encode image {image_file}: {e}")
+                image_data["base64"] = None
+                
+        return image_data
+    except Exception as e:
+        print(f"Error processing image {image_file}: {e}")
+        return None
 
-    return output
-
-def process_and_cleanup(url, threshold=DEFAULT_SCENE_THRESHOLD):
-    # Get the initial result with temp_dir
-    initial_result = download_media_and_metadata(url)
-    temp_dir = initial_result['temp_dir']  # Store temp_dir before processing
+def process_and_cleanup(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD) -> Dict:
+    """
+    Process a URL and clean up temporary files.
     
-    # Process the URL
-    result = process_url(url, threshold)
-    
-    # Clean up using the stored temp_dir
-    cleanup_temp_files(temp_dir)
-    
-    return result
+    Args:
+        url: The URL to process
+        threshold: Scene detection threshold
+        
+    Returns:
+        Dict containing the processed result
+    """
+    try:
+        result = process_single_url(url, threshold)
+        return result
+    finally:
+        # Cleanup is handled by process_single_url's temp directory management
+        pass
 
 def main():
     if len(sys.argv) < 2:
