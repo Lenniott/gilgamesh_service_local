@@ -19,9 +19,12 @@
   - [x] Implement try/except blocks for each URL
   - [x] Define error response format
   - [x] Ensure consistent array length in responses
-- [ ] Idempotency (Optional)
-  - [ ] Evaluate caching strategy
-  - [ ] Implement URL-based caching if needed
+- [x] Idempotency
+  - [x] Implement file-based caching with TTL
+  - [x] Add cache management endpoints
+  - [x] Integrate caching with process endpoint
+  - [x] Add background task caching
+  - [x] Implement thread-safe cache operations
 
 ## Phase 3 - Performance & Resource Management
 - [ ] Async I/O Implementation
@@ -81,4 +84,6 @@
 3. Added OpenAPI documentation
 4. Improved error isolation per URL
 5. Added type hints and docstrings for better code clarity
-6. Added `encode_base64` option to control media encoding in responses 
+6. Added `encode_base64` option to control media encoding in responses
+7. Implemented URL-based caching with file storage and TTL
+8. Added `cleanup_temp` option to control temporary file and cache cleanup 

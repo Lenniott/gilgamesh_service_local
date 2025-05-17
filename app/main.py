@@ -12,6 +12,10 @@ from app.cleanup import cleanup_temp_folder
 from app.stitch_scenes import stitch_scenes_to_base64
 from app.downloaders import download_media_and_metadata
 from app.video_processing import cleanup_temp_files
+from app.cache import Cache
+
+# Initialize cache
+cache = Cache(ttl_hours=24)  # 24 hour TTL
 
 app = FastAPI(
     title="Gilgamesh Media Processing Service",
@@ -21,7 +25,8 @@ app = FastAPI(
 
 class DownloadRequest(BaseModel):
     urls: List[HttpUrl]
-    encode_base64: bool = True  # Whether to include base64-encoded media in the response
+    encode_base64: bool = True  # Whether to include base64-encoded video data in the response
+    cleanup_temp: bool = True   # Whether to clean up temporary files and cache after processing
 
 class ProcessResponse(BaseModel):
     status: str
@@ -54,7 +59,8 @@ async def process_handler(request: DownloadRequest, background_tasks: Background
     Args:
         request: DownloadRequest containing:
             - urls: List of URLs to process
-            - encode_base64: Whether to include base64-encoded media (default: True)
+            - encode_base64: Whether to include base64-encoded video data (default: True)
+            - cleanup_temp: Whether to clean up temporary files and cache after processing (default: True)
     
     The response format for each URL will be:
     {
@@ -73,10 +79,30 @@ async def process_handler(request: DownloadRequest, background_tasks: Background
         )
     
     results = []
+    temp_dirs = []  # Keep track of temp directories for cleanup
+    
     for url in request.urls:
         try:
-            # Process each URL independently
-            result = process_single_url(str(url), encode_base64=request.encode_base64)
+            url_str = str(url)
+            
+            # Try to get from cache first
+            cached_result = cache.get(url_str, encode_base64=request.encode_base64)
+            if cached_result:
+                results.append(cached_result)
+                continue
+                
+            # Process URL if not in cache
+            result = process_single_url(url_str, encode_base64=request.encode_base64)
+            
+            # Store temp directory for potential cleanup
+            if 'temp_dir' in result:
+                temp_dirs.append(result['temp_dir'])
+                # Remove temp_dir from response
+                result.pop('temp_dir', None)
+            
+            # Cache the result in the background
+            background_tasks.add_task(cache.set, url_str, result)
+            
             results.append(result)
         except Exception as e:
             # Capture error but continue processing other URLs
@@ -89,18 +115,63 @@ async def process_handler(request: DownloadRequest, background_tasks: Background
             print(traceback.format_exc())
             results.append(error_detail)
     
+    # Clean up temp directories and cache if requested
+    if request.cleanup_temp and temp_dirs:
+        background_tasks.add_task(cleanup_temp_dirs, temp_dirs, clear_cache=True)
+    
     return {"status": "success", "results": results}
 
+def cleanup_temp_dirs(temp_dirs: List[str], clear_cache: bool = False) -> None:
+    """
+    Clean up temporary directories and optionally clear the cache.
+    
+    Args:
+        temp_dirs: List of temporary directories to clean up
+        clear_cache: Whether to also clear the cache (default: False)
+    """
+    # Clean up temp directories
+    for temp_dir in temp_dirs:
+        try:
+            cleanup_temp_files(temp_dir)
+        except Exception as e:
+            print(f"Error cleaning up temp directory {temp_dir}: {e}")
+    
+    # Clear cache if requested
+    if clear_cache:
+        try:
+            cache.clear()
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
+
 @app.post("/cleanup")
-async def cleanup_handler():
-    """Clean up all temporary files."""
+async def cleanup_handler(clear_cache: bool = True):
+    """
+    Clean up all temporary files and optionally clear the cache.
+    
+    Args:
+        clear_cache: Whether to also clear the cache (default: True)
+    """
     try:
+        # Clean up temp folder
         cleanup_temp_folder()
-        return {"status": "success"}
+        
+        # Clear cache if requested
+        if clear_cache:
+            cache.clear()
+            
+        return {
+            "status": "success",
+            "message": "Cleanup completed successfully",
+            "cache_cleared": clear_cache
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail={"status": "error", "error": str(e)}
+            detail={
+                "status": "error",
+                "error": str(e),
+                "cache_cleared": False
+            }
         )
 
 @app.post("/download")
@@ -129,6 +200,28 @@ def stitch_handler(request: StitchRequest):
         print("Traceback:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/cache/stats")
+async def cache_stats():
+    """Get cache statistics."""
+    return cache.get_stats()
+
+@app.post("/cache/clear")
+async def clear_cache(older_than_hours: Optional[int] = None):
+    """
+    Clear the cache.
+    
+    Args:
+        older_than_hours: If provided, only clear entries older than this many hours
+    """
+    try:
+        cache.clear(older_than_hours)
+        return {"status": "success", "message": "Cache cleared successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"status": "error", "error": str(e)}
+        )
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="0.0.0.0", port=8500, reload=True)

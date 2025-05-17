@@ -19,7 +19,7 @@ def process_single_url(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD, enc
     Args:
         url: The URL to process (Instagram post/carousel/reel or YouTube)
         threshold: Scene detection threshold (default: 0.22)
-        encode_base64: Whether to include base64-encoded media in the response (default: True)
+        encode_base64: Whether to include base64-encoded video data in the response (default: True)
         
     Returns:
         Dict containing:
@@ -29,7 +29,8 @@ def process_single_url(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD, enc
             "description": str,
             "tags": List[str],
             "videos": Optional[List[Dict]],  # For posts with videos/reels
-            "images": Optional[List[Dict]]   # For posts with images
+            "images": Optional[List[Dict]],  # For posts with images
+            "temp_dir": str                  # Temporary directory path (for cleanup)
         }
         
     Raises:
@@ -55,10 +56,10 @@ def process_single_url(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD, enc
             if video_result:
                 videos_output.append(video_result)
         
-        # Process images
+        # Process images (never include base64)
         images_output = []
         for image_file in image_files:
-            image_result = process_image(image_file, result, encode_base64)
+            image_result = process_image(image_file, result)
             if image_result:
                 images_output.append(image_result)
         
@@ -68,6 +69,7 @@ def process_single_url(url: str, threshold: float = DEFAULT_SCENE_THRESHOLD, enc
             "title": result.get('title', ''),
             "description": result.get('description', ''),
             "tags": result.get('tags', []),
+            "temp_dir": temp_dir  # Include temp_dir for cleanup
         }
         
         if videos_output:
@@ -143,25 +145,13 @@ def process_video(video_file: str, result: Dict, threshold: float, encode_base64
         print(f"Error processing video {video_file}: {e}")
         return None
 
-def process_image(image_file: str, result: Dict, encode_base64: bool = True) -> Optional[Dict]:
+def process_image(image_file: str, result: Dict) -> Optional[Dict]:
     """Process a single image file and return its data."""
     try:
         ocr_text = ocr_image(image_file, reader=EASYOCR_READER)
-        image_data = {
+        return {
             "text": ocr_text
         }
-        
-        # Only include base64 data if encode_base64 is True
-        if encode_base64:
-            try:
-                with open(image_file, 'rb') as f:
-                    import base64
-                    image_data["base64"] = base64.b64encode(f.read()).decode('utf-8')
-            except Exception as e:
-                print(f"Warning: Could not encode image {image_file}: {e}")
-                image_data["base64"] = None
-                
-        return image_data
     except Exception as e:
         print(f"Error processing image {image_file}: {e}")
         return None
