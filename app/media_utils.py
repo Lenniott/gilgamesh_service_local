@@ -130,7 +130,7 @@ async def process_video(video_file: str, result: Dict, threshold: float, encode_
                 except Exception as e:
                     print(f"Warning: Could not extract scene {start}-{end}: {e}")
                     scene_data["video"] = None
-            
+                
             return scene_data
         
         scenes = await asyncio.gather(*(process_scene(scene) for scene in scene_cuts))

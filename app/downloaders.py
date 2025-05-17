@@ -142,4 +142,4 @@ async def download_media_and_metadata(url: str) -> Dict:
     
     result['temp_dir'] = temp_dir
     result['link'] = url
-    return result
+    return result 
