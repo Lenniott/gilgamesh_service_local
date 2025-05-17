@@ -111,6 +111,8 @@ class MediaMetadata(BaseModel):
     upload_date: str = Field(default="", description="Upload date in YYYYMMDD format")
     duration: float = Field(default=0.0, description="Duration in seconds")
     is_carousel: bool = Field(default=False, description="Whether this is a carousel post")
+    media_type: MediaType = Field(default=MediaType.VIDEO, description="Type of media (video, image, audio)")
+    media_count: int = Field(default=1, description="Number of media items in the post (for carousels)")
 
 class DownloadResult(BaseModel):
     """Result of a media download operation."""

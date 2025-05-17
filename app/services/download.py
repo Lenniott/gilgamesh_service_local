@@ -104,41 +104,78 @@ class AsyncDownloadService:
             raise DownloadError(f"YouTube/TikTok download failed: {str(e)}")
 
     async def _download_instagram(self, url: str, temp_dir: str) -> DownloadResult:
-        """Download media from Instagram using yt-dlp."""
+        """Download media from Instagram using instaloader."""
         loop = asyncio.get_event_loop()
         
         def _download():
-            opts = {
-                'outtmpl': os.path.join(temp_dir, '%(id)s.%(ext)s'),
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                'merge_output_format': 'mp4',
-                'quiet': True,
-                'noplaylist': True
-            }
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return info
-
-        try:
-            info = await loop.run_in_executor(None, _download)
+            # Initialize instaloader
+            L = instaloader.Instaloader(
+                download_videos=True,
+                download_video_thumbnails=False,
+                download_geotags=False,
+                download_comments=False,
+                save_metadata=False,
+                compress_json=False,
+                post_metadata_txt_pattern="",
+                dirname_pattern=temp_dir
+            )
+            
+            # Extract post shortcode from URL
+            shortcode = None
+            if '/p/' in url:
+                shortcode = url.split('/p/')[1].split('/')[0]
+            elif '/reel/' in url:
+                shortcode = url.split('/reel/')[1].split('/')[0]
+            
+            if not shortcode:
+                raise DownloadError("Could not extract post shortcode from URL")
+            
+            # Get post
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            
+            # Download post
+            L.download_post(post, target=temp_dir)
+            
+            # Get downloaded files
             files = []
             for root, _, filenames in os.walk(temp_dir):
                 for filename in filenames:
-                    if filename.lower().endswith(('.mp4', '.mkv', '.webm')):
+                    if filename.lower().endswith(('.mp4', '.jpg', '.jpeg', '.png')):
                         files.append(os.path.join(root, filename))
+            
+            # Get metadata
+            is_carousel = post.mediacount > 1
+            media_type = 'video' if post.is_video else 'image'
+            
+            return {
+                'files': files,
+                'title': post.caption if post.caption else '',
+                'description': '',
+                'tags': [tag.name for tag in post.tagged_users],
+                'upload_date': post.date_local.strftime('%Y%m%d'),
+                'duration': 0,  # Instagram doesn't provide duration for images
+                'is_carousel': is_carousel,
+                'media_type': media_type,
+                'media_count': post.mediacount
+            }
+
+        try:
+            info = await loop.run_in_executor(None, _download)
             
             metadata = MediaMetadata(
                 source='instagram',
-                title=info.get('title', ''),
-                description=info.get('description', ''),
-                tags=info.get('tags', []) or [],
-                upload_date=info.get('upload_date', ''),
-                duration=info.get('duration', 0),
-                is_carousel=False
+                title=info['title'],
+                description=info['description'],
+                tags=info['tags'],
+                upload_date=info['upload_date'],
+                duration=info['duration'],
+                is_carousel=info['is_carousel'],
+                media_type=info['media_type'],
+                media_count=info['media_count']
             )
             
             return DownloadResult(
-                files=files,
+                files=info['files'],
                 metadata=metadata,
                 temp_dir=temp_dir,
                 original_url=url

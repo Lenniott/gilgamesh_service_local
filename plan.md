@@ -172,25 +172,48 @@ Additional tasks completed:
 - Monitor performance metrics
 - Document all major decisions 
 
-# Rollback and Focused Image Support Plan
 
-## Decision
-- Revert to the last working commit where video processing was stable and simple.
-- Only add robust image support (including Instagram carousels, posts, and reels) to the download and processing pipeline.
-- Do not focus on queueing, async status endpoints, or complex response models for now.
-- Keep the API and processing logic as simple as possible.
 
-## Steps
-1. Identify and restore the last working commit for video processing.
-2. Update the download service to:
-   - Use instaloader for Instagram images and carousels.
-   - Detect and handle image files in addition to videos.
-3. Update the processing pipeline to:
-   - Run OCR on images when detected.
-   - Return results in the same format as for videos, with minimal changes.
-4. Test with:
-   - Instagram single image post
-   - Instagram carousel (multiple images)
-   - Instagram reel (video)
-   - YouTube video
-5. Only after image support is robust, consider reintroducing async/queueing if needed. 
+
+
+Ran tool
+Here’s the plan based on your requirements and the current state of your project:
+
+---
+
+## 1. **Queue Handling**
+- I will implement an in-process `asyncio.Queue` for the `/api/process` endpoint.
+- This will ensure requests are queued and processed with controlled concurrency (e.g., 2-4 at a time, configurable).
+- Each incoming batch of URLs will be queued as a single job, and each URL within the batch will be processed with concurrency limits.
+
+## 2. **Output Structure**
+- I will update the response builder so that every result for every URL matches your required JSON structure:
+  - `url`, `title`, `description`, `tags`
+  - `videos` (with `id`, `video`, `scenes`, `transcript`)
+  - `images` (with `text`)
+- If a URL fails, an error object will be included in the results for that URL.
+
+## 3. **Preserve Working OCR/Media Logic**
+- No changes will be made to the working OCR/image/video logic.
+
+## 4. **API and Port**
+- The FastAPI app is already set to run on port 8500.
+- The `/api/process` endpoint will be the main entry point.
+
+---
+
+### **Implementation Steps**
+1. Add a queue worker/background task to the FastAPI app.
+2. Update the `/api/process` endpoint to enqueue jobs and return results in the correct format.
+3. Update the response builder to match your JSON schema exactly.
+4. Ensure error handling is robust and errors are included in the results.
+5. Test with your example requests to confirm everything works as expected.
+
+---
+
+**I will now begin implementing these changes.**  
+You will get a robust, queue-backed, standards-compliant service with the output you want.
+
+If you have a preferred concurrency limit (e.g., how many URLs to process at once), let me know. Otherwise, I’ll default to 4.
+
+**Proceed with the implementation now.**

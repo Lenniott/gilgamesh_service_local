@@ -74,13 +74,17 @@ class OCRPipeline:
                     result = await asyncio.get_event_loop().run_in_executor(
                         None, self.reader.readtext, np.array(region), {'detail': 0}
                     )
-                    texts.extend(result)
+                    if result:  # Check if result is not empty
+                        texts.extend([text for text in result if isinstance(text, str)])
             else:
                 # Process entire image
                 result = await asyncio.get_event_loop().run_in_executor(
                     None, self.reader.readtext, np.array(image), {'detail': 0}
                 )
-                texts = result
+                if result:  # Check if result is not empty
+                    texts = [text for text in result if isinstance(text, str)]
+                else:
+                    texts = []
                 
             text = ' '.join(texts)
             text = self._clean_text(text)
@@ -126,7 +130,7 @@ class SceneProcessingService:
                       A value of 0.22 means 22% of pixels need to change to trigger a scene cut
             frame_delay: Number of seconds to wait after a scene cut before taking the frame
                         Default is 0.5 seconds to avoid transition frames
-            target_width: Target width for downscaled video (height will be calculated to maintain aspect ratio)
+            target_width: Target width for downscaled video/images (height will be calculated to maintain aspect ratio)
             target_bitrate: Target bitrate for video compression (e.g. "800k" for 800 kbps)
         """
         self.threshold = threshold
@@ -247,6 +251,28 @@ class SceneProcessingService:
                 os.unlink(output_path)
             raise ProcessingError(f"Failed to create optimized video: {str(e)}")
 
+    async def process_media(self, file_path: str, media_type: str) -> Dict[str, Any]:
+        """
+        Process a media file (video or image) to extract text and metadata.
+        
+        Args:
+            file_path: Path to the media file
+            media_type: Type of media ('video' or 'image')
+            
+        Returns:
+            Dict containing:
+            - scenes: List of scene/text information
+            - metadata: Media metadata
+            - media_base64: Base64 encoded media (if applicable)
+            - media_size: Size of the media in bytes
+        """
+        if media_type == 'video':
+            return await self.process_video(file_path)
+        elif media_type == 'image':
+            return await self.process_image(file_path)
+        else:
+            raise ProcessingError(f"Unsupported media type: {media_type}")
+
     async def process_video(self, video_path: str) -> Dict[str, Any]:
         """
         Process a video file to detect scenes and perform OCR on each scene.
@@ -342,19 +368,18 @@ class SceneProcessingService:
         """Perform OCR on a frame using the OCR pipeline."""
         try:
             image = Image.open(frame_path)
-            
             # Detect text regions
             regions = await self.ocr_pipeline.detect_text_regions(image)
-            
             # Try OCR with detected regions first
             if regions:
                 text = await self.ocr_pipeline.recognize_text(image, regions)
+                print(f"[DEBUG] EasyOCR (regions) result for {frame_path}: {repr(text)}")
                 if text.strip():
                     return text
-            
             # If no text found with regions, try full image
-            return await self.ocr_pipeline.recognize_text(image)
-            
+            text = await self.ocr_pipeline.recognize_text(image)
+            print(f"[DEBUG] EasyOCR (full image) result for {frame_path}: {repr(text)}")
+            return text
         except Exception as e:
             print(f"OCR failed for {frame_path}: {str(e)}")
             return ""
@@ -447,54 +472,81 @@ class SceneProcessingService:
             
         except Exception as e:
             raise ProcessingError(f"Failed to get video metadata: {str(e)}")
-            
-    async def _detect_scenes(self, video_path: str, frames_dir: str) -> List[SceneCut]:
+
+    async def process_image(self, image_path: str) -> Dict[str, Any]:
         """
-        Detect scene cuts in a video using ffmpeg and extract frames.
+        Process an image file to extract text and metadata.
         
         Args:
-            video_path: Path to the video file
-            frames_dir: Directory to save extracted frames
+            image_path: Path to the image file
             
         Returns:
-            List of SceneCut objects
+            Dict containing:
+            - scenes: List with single scene containing OCR text
+            - metadata: Image metadata
         """
-        # Extract first frame
-        first_frame_path = os.path.join(frames_dir, 'cut_0000.jpg')
-        first_frame_cmd = [
-            'ffmpeg', '-i', video_path,
-            '-vf', 'select=eq(n\,0)',
-            '-vframes', '1',
-            first_frame_path
-        ]
-        await self._run_subprocess(first_frame_cmd)
-        
-        # Extract frames at scene cuts
-        frame_pattern = os.path.join(frames_dir, 'cut_%04d.jpg')
-        cmd = [
-            'ffmpeg', '-i', video_path,
-            '-vf', f"select='gt(scene,{self.threshold})',showinfo",
-            '-vsync', 'vfr', frame_pattern,
-            '-f', 'null', '-'
-        ]
-        result = await self._run_subprocess(cmd)
-        
-        # Get timestamps from ffmpeg output
-        timestamps = [0.0]  # Start with first frame
-        for line in result.stderr.split('\n'):
-            if 'showinfo' in line and 'pts_time:' in line:
-                match = re.search(r'pts_time:([0-9.]+)', line)
-                if match:
-                    timestamps.append(float(match.group(1)))
-        
-        # Get extracted frames
-        frames = sorted([os.path.join(frames_dir, f) for f in os.listdir(frames_dir) 
-                        if f.startswith('cut_') and f.endswith('.jpg')])
-        
-        if len(timestamps) != len(frames):
-            print(f"Warning: Number of timestamps ({len(timestamps)}) doesn't match number of frames ({len(frames)})")
-            min_len = min(len(timestamps), len(frames))
-            timestamps = timestamps[:min_len]
-            frames = frames[:min_len]
+        try:
+            # Get image metadata
+            metadata = await self._get_image_metadata(image_path)
             
-        return [SceneCut(start_time, end_time, frame_path) for start_time, end_time, frame_path in zip(timestamps[:-1], timestamps[1:], frames)] 
+            # Perform OCR on the image
+            text = await self._perform_ocr(image_path)
+            print(f"[DEBUG] OCR extracted text for {image_path}: {repr(text)}")
+            
+            # Create a single "scene" for the image
+            processed_scenes = [{
+                "start_time": 0.0,
+                "end_time": 0.0,
+                "text": text,
+                "confidence": 1.0  # Images are treated as single frames
+            }]
+            
+            # Create output structure
+            result = {
+                "scenes": processed_scenes,
+                "metadata": {
+                    "resolution": f"{metadata.width}x{metadata.height}",
+                    "format": metadata.format,
+                    "size_bytes": metadata.size_bytes,
+                    "optimized_resolution": f"{self.target_width}p"
+                }
+            }
+            
+            # Save to JSON file in same directory as image
+            output_path = os.path.join(os.path.dirname(image_path), "scenes.json")
+            with open(output_path, 'w') as f:
+                json.dump(result, f, indent=2)
+            
+            return result
+            
+        except Exception as e:
+            raise ProcessingError(f"Error processing image: {str(e)}")
+
+    async def _get_image_metadata(self, image_path: str) -> VideoMetadata:
+        """
+        Get image metadata.
+        
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            VideoMetadata object containing metadata
+        """
+        try:
+            with Image.open(image_path) as img:
+                width, height = img.size
+                format = img.format.lower()
+                size_bytes = os.path.getsize(image_path)
+                
+                return VideoMetadata(
+                    width=width,
+                    height=height,
+                    format=format,
+                    size_bytes=size_bytes,
+                    fps=None,  # Not applicable for images
+                    duration=None,  # Not applicable for images
+                    codec=None  # Not applicable for images
+                )
+                
+        except Exception as e:
+            raise ProcessingError(f"Failed to get image metadata: {str(e)}") 

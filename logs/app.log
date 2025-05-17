@@ -1,0 +1,79 @@
+2025-05-17 09:05:31,122 - app.main - INFO - Logging configured successfully
+2025-05-17 09:05:31,126 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:05:55,378 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:06:09,015 - app.main - INFO - Logging configured successfully
+2025-05-17 09:06:09,019 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:06:35,836 - app.services.media - INFO - Starting media processing for URL: https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:06:35,836 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:06:35,836 - app.services.media - ERROR - Failed to process media https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: 'pydantic_core._pydantic_core.Url' object has no attribute 'lower'
+Traceback (most recent call last):
+  File "/Users/ben/Desktop/CODE/gilgamesh_service_local/app/services/media.py", line 69, in process_media_url
+    download_result = await self.download_service.download_media(url)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/ben/Desktop/CODE/gilgamesh_service_local/app/services/download.py", line 40, in download_media
+    url_l = url.lower()
+            ^^^^^^^^^
+AttributeError: 'pydantic_core._pydantic_core.Url' object has no attribute 'lower'
+2025-05-17 09:07:07,839 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:07:20,717 - app.main - INFO - Logging configured successfully
+2025-05-17 09:07:20,721 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:07:35,408 - app.main - INFO - Logging configured successfully
+2025-05-17 09:07:35,412 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:07:42,665 - app.services.media - INFO - Starting media processing for URL: https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:07:42,665 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:07:44,709 - app.services.media - INFO - Downloaded 1 files
+2025-05-17 09:07:44,709 - app.services.media - INFO - Processing image file: /Users/ben/Desktop/CODE/gilgamesh_service_local/app/temp/5051cd83-5c48-4d72-9c0b-c3575dbbc164/2025-05-14_18-45-00_UTC.jpg
+2025-05-17 09:07:55,635 - app.services.media - INFO - Successfully processed image
+2025-05-17 09:07:55,636 - app.services.media - INFO - Successfully processed image
+2025-05-17 09:07:55,636 - app.services.media - INFO - Completed media processing for https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv in 12.97 seconds
+2025-05-17 09:10:47,155 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:11:15,439 - app.main - INFO - Logging configured successfully
+2025-05-17 09:11:15,443 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:11:52,915 - app.main - INFO - Logging configured successfully
+2025-05-17 09:11:52,919 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:12:05,248 - app.services.media - ERROR - Error processing https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: SceneProcessingService.__init__() got an unexpected keyword argument 'scene_threshold'
+2025-05-17 09:12:52,684 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:13:03,220 - app.main - INFO - Logging configured successfully
+2025-05-17 09:13:03,225 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:13:24,220 - app.main - INFO - Logging configured successfully
+2025-05-17 09:13:24,224 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:13:27,164 - app.services.media - ERROR - Error processing https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: TranscriptionService.__init__() got an unexpected keyword argument 'language'
+2025-05-17 09:14:49,763 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:15:00,344 - app.main - INFO - Logging configured successfully
+2025-05-17 09:15:00,348 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:15:19,738 - app.main - INFO - Logging configured successfully
+2025-05-17 09:15:19,742 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:15:22,047 - app.services.media - ERROR - Error processing https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: 'MediaProcessingService' object has no attribute '_download_media'
+2025-05-17 09:15:44,708 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:16:03,907 - app.main - INFO - Logging configured successfully
+2025-05-17 09:16:03,912 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:16:10,473 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:16:10,474 - app.services.media - ERROR - Error downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: 'pydantic_core._pydantic_core.Url' object has no attribute 'lower'
+2025-05-17 09:16:10,474 - app.services.media - ERROR - Error processing https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv: Failed to download media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:16:26,955 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:17:05,130 - app.main - INFO - Logging configured successfully
+2025-05-17 09:17:05,134 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:17:08,224 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:17:10,612 - app.services.media - INFO - Successfully downloaded /Users/ben/Desktop/CODE/gilgamesh_service_local/app/temp/5bfa1985-55d7-4711-ae60-771a99c15223/2025-05-14_18-45-00_UTC.jpg
+2025-05-17 09:17:21,271 - app.services.media - INFO - Successfully processed image
+2025-05-17 09:17:21,271 - app.services.media - INFO - Debug mode enabled - keeping temporary files in: /var/folders/87/n22f0dzs3550nmsx6ghcpds80000gp/T/gilgamesh_media_sn6bnlt0
+2025-05-17 09:17:55,656 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:18:06,369 - app.main - INFO - Logging configured successfully
+2025-05-17 09:18:06,373 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:18:09,120 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:18:13,034 - app.services.media - INFO - Successfully downloaded /Users/ben/Desktop/CODE/gilgamesh_service_local/app/temp/3103367a-c5fb-4eb1-84b3-1ac292bc82cf/2025-05-14_18-45-00_UTC.jpg
+2025-05-17 09:18:23,553 - app.services.media - INFO - Successfully processed image
+2025-05-17 09:18:23,553 - app.services.media - INFO - Debug mode enabled - keeping temporary files in: /var/folders/87/n22f0dzs3550nmsx6ghcpds80000gp/T/gilgamesh_media_9q773gzo
+2025-05-17 09:20:52,353 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:21:10,561 - app.main - INFO - Logging configured successfully
+2025-05-17 09:21:10,566 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:21:25,630 - app.services.media - INFO - Downloading media from https://www.instagram.com/p/DJpP_JPSKHK/?igsh=MmIyb2twNXc0ajNv
+2025-05-17 09:21:27,663 - app.services.media - INFO - Successfully downloaded /Users/ben/Desktop/CODE/gilgamesh_service_local/app/temp/45a011df-0bc5-469f-9016-6fb9dd244c77/2025-05-14_18-45-00_UTC.jpg
+2025-05-17 09:21:39,132 - app.services.media - INFO - Successfully processed image
+2025-05-17 09:21:39,132 - app.services.media - INFO - Debug mode enabled - keeping temporary files in: /var/folders/87/n22f0dzs3550nmsx6ghcpds80000gp/T/gilgamesh_media_q7cd48p4
+2025-05-17 09:25:22,045 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:25:35,204 - app.main - INFO - Logging configured successfully
+2025-05-17 09:25:35,208 - app.main - INFO - Media Processing Service starting up
+2025-05-17 09:25:40,460 - app.main - INFO - Media Processing Service shutting down
+2025-05-17 09:25:50,025 - app.main - INFO - Logging configured successfully
+2025-05-17 09:25:50,029 - app.main - INFO - Media Processing Service starting up
