@@ -36,6 +36,11 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# Concurrency control
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 10))
+REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", 30))
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
 class URLRequest(BaseModel):
     url: HttpUrl
     cleanup_temp: bool = True
@@ -73,12 +78,20 @@ async def process_handler(request: URLRequest, background_tasks: BackgroundTasks
         raise HTTPException(status_code=400, detail="Unsupported URL")
         
     try:
-        result = await process_single_url(str(request.url), request.threshold, request.encode_base64)
-        
-        if request.cleanup_temp:
-            background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
+        # Acquire semaphore with timeout
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=429, detail=f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later.")
+        try:
+            result = await process_single_url(str(request.url), request.threshold, request.encode_base64)
             
-        return {"status": "success", "result": result}
+            if request.cleanup_temp:
+                background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
+            
+            return {"status": "success", "result": result}
+        finally:
+            semaphore.release()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -94,15 +107,22 @@ async def process_batch_handler(request: URLBatchRequest, background_tasks: Back
     # Process URLs concurrently
     async def process_url(url: str) -> Dict:
         try:
-            if not is_valid_url(url):
-                return {"status": "error", "url": url, "detail": "Unsupported URL"}
+            try:
+                await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                return {"status": "error", "url": url, "detail": f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later."}
+            try:
+                if not is_valid_url(url):
+                    return {"status": "error", "url": url, "detail": "Unsupported URL"}
                 
-            result = await process_single_url(url, request.threshold, request.encode_base64)
-            
-            if request.cleanup_temp:
-                background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
+                result = await process_single_url(url, request.threshold, request.encode_base64)
                 
-            return {"status": "success", "url": url, "result": result}
+                if request.cleanup_temp:
+                    background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
+                
+                return {"status": "success", "url": url, "result": result}
+            finally:
+                semaphore.release()
         except Exception as e:
             return {"status": "error", "url": url, "detail": str(e)}
     
