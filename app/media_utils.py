@@ -3,6 +3,7 @@ import sys
 import json
 import uuid
 import asyncio
+import subprocess
 from typing import Dict, List, Optional, Union
 from app.downloaders import download_media_and_metadata
 from app.scene_detection import extract_scene_cuts_and_frames, get_video_duration
@@ -86,10 +87,20 @@ async def process_video(video_file: str, result: Dict, threshold: float, encode_
         frames_dir = os.path.join(result['temp_dir'], 'frames', video_name)
         await asyncio.to_thread(os.makedirs, frames_dir, exist_ok=True)
         
+        # Check if video has audio stream
+        def has_audio_stream(video_path: str) -> bool:
+            cmd = ['ffprobe', '-v', 'error', '-select_streams', 'a', '-show_streams', video_path]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            return bool(result.stdout.strip())
+        
         # Get transcript and scenes concurrently
         async def get_transcript():
             try:
-                return await asyncio.to_thread(transcribe_audio, video_file)
+                # Only attempt transcription if video has audio
+                if await asyncio.to_thread(has_audio_stream, video_file):
+                    return await asyncio.to_thread(transcribe_audio, video_file)
+                print(f"Video {video_file} has no audio stream, skipping transcription")
+                return []
             except Exception as e:
                 print(f"Warning: Could not transcribe video {video_file}: {e}")
                 return []

@@ -73,6 +73,11 @@
   - [ ] Concurrent request testing
   - [ ] Test with very large media files
   - [ ] Test with corrupted media files
+  - [ ] Debug Instagram reel download failures
+    - [ ] Add detailed logging for Instagram downloader
+    - [ ] Test with different reel URLs
+    - [ ] Verify Instagram API access
+    - [ ] Add fallback download methods
 
 ## Phase 5 - CI/CD & Release Stages
 - [ ] Alpha (Internal Dev)
