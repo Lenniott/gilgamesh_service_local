@@ -4,7 +4,6 @@ from unittest.mock import Mock, patch, AsyncMock
 from app.media_utils import process_single_url
 from app.downloaders import download_media_and_metadata
 from app.scene_detection import extract_scene_cuts_and_frames
-from app.ocr_utils import ocr_image
 from app.transcription import transcribe_audio
 
 # Test data
@@ -40,13 +39,7 @@ def mock_scene_detection():
     with patch('app.media_utils.extract_scene_cuts_and_frames', side_effect=sync_mock) as mock:
         yield mock
 
-@pytest.fixture
-def mock_ocr():
-    """Mock the OCR function."""
-    def sync_mock(*args, **kwargs):
-        return "Test OCR text"
-    with patch('app.media_utils.ocr_image', side_effect=sync_mock) as mock:
-        yield mock
+
 
 @pytest.fixture
 def mock_transcription():
@@ -65,7 +58,7 @@ def mock_extract_and_downscale_scene():
         yield mock
 
 @pytest.mark.asyncio
-async def test_process_single_url_basic(mock_download, mock_scene_detection, mock_ocr, mock_transcription, mock_extract_and_downscale_scene):
+async def test_process_single_url_basic(mock_download, mock_scene_detection, mock_transcription, mock_extract_and_downscale_scene):
     """Test basic processing of a single URL."""
     result = await process_single_url(TEST_URLS['instagram_post'], threshold=0.22, encode_base64=False)
     
@@ -88,7 +81,7 @@ async def test_process_single_url_basic(mock_download, mock_scene_detection, moc
                 assert 'video' not in scene
 
 @pytest.mark.asyncio
-async def test_process_single_url_with_base64(mock_download, mock_scene_detection, mock_ocr, mock_transcription, mock_extract_and_downscale_scene):
+async def test_process_single_url_with_base64(mock_download, mock_scene_detection, mock_transcription, mock_extract_and_downscale_scene):
     """Test processing with base64 encoding enabled."""
     result = await process_single_url(TEST_URLS['instagram_post'], threshold=0.22, encode_base64=True)
     
@@ -111,7 +104,7 @@ async def test_process_single_url_error_handling(mock_download, mock_extract_and
     assert "Download failed" in str(exc_info.value)
 
 @pytest.mark.asyncio
-async def test_process_single_url_cleanup(mock_download, mock_scene_detection, mock_ocr, mock_transcription, mock_extract_and_downscale_scene):
+async def test_process_single_url_cleanup(mock_download, mock_scene_detection, mock_transcription, mock_extract_and_downscale_scene):
     """Test that temporary files are properly managed."""
     import os
     import shutil

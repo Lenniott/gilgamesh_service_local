@@ -6,10 +6,9 @@ import asyncio
 from typing import Dict, List, Optional, Union
 from app.downloaders import download_media_and_metadata
 from app.scene_detection import extract_scene_cuts_and_frames, get_video_duration
-from app.ocr_utils import ocr_image, EASYOCR_READER
 from app.transcription import transcribe_audio
 from app.video_processing import extract_and_downscale_scene, cleanup_temp_files
-from app.utils import clean_text, resize_image_if_needed
+from app.utils import clean_text
 
 DEFAULT_SCENE_THRESHOLD = 0.22
 
@@ -108,18 +107,10 @@ async def process_video(video_file: str, result: Dict, threshold: float, encode_
             start, frame = start_frame
             end = await asyncio.to_thread(get_video_duration, video_file) if start == scene_cuts[-1][0] else scene_cuts[scene_cuts.index((start, frame)) + 1][0]
             
-            # Get OCR text for the frame
-            try:
-                ocr_text = await asyncio.to_thread(ocr_image, frame, reader=EASYOCR_READER)
-            except Exception as e:
-                print(f"Warning: Could not OCR frame {frame}: {e}")
-                ocr_text = ""
-                
             scene_data = {
                 "start": start,
                 "end": end,
-                "text": ocr_text,
-                "confidence": 1.0,  # TODO: Add actual confidence from OCR
+                "confidence": 1.0,
             }
             
             # Only include video data if encode_base64 is True
@@ -148,9 +139,8 @@ async def process_video(video_file: str, result: Dict, threshold: float, encode_
 async def process_image(image_file: str, result: Dict) -> Optional[Dict]:
     """Process a single image file and return its data asynchronously."""
     try:
-        ocr_text = await asyncio.to_thread(ocr_image, image_file, reader=EASYOCR_READER)
         return {
-            "text": ocr_text
+            "filename": os.path.basename(image_file)
         }
     except Exception as e:
         print(f"Error processing image {image_file}: {e}")

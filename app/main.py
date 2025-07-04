@@ -17,6 +17,7 @@ from app.downloaders import download_media_and_metadata
 from app.video_processing import cleanup_temp_files
 from app.cache import Cache
 from app.utils import is_valid_url
+from app.unified_processor import process_url_unified, ProcessingOptions
 
 # Initialize cache
 cache = Cache(ttl_hours=24)  # 24 hour TTL
@@ -67,6 +68,19 @@ class SceneInput(BaseModel):
 
 class StitchRequest(BaseModel):
     scenes: List[SceneInput]
+
+class UnifiedProcessRequest(BaseModel):
+    url: HttpUrl
+    save: bool = False
+    transcribe: Optional[str] = None  # None, "raw", or "timestamp"
+    describe: bool = False
+    save_to_postgres: bool = True
+    save_to_qdrant: bool = True
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "Gilgamesh Media Processing Service"}
 
 @app.post("/process")
 async def process_handler(request: URLRequest, background_tasks: BackgroundTasks) -> Dict:
@@ -149,7 +163,10 @@ async def cleanup_handler(clear_cache_data: bool = False) -> Dict:
     Clean up temporary files and optionally clear the cache.
     """
     try:
-        await asyncio.to_thread(cleanup_temp_folder)
+        # Clean the main temp directory
+        temp_dir = os.path.join(os.path.dirname(__file__), 'temp')
+        await asyncio.to_thread(cleanup_temp_folder, temp_dir)
+        
         if clear_cache_data:
             await asyncio.to_thread(cache.clear)
         return {"status": "success", "message": "Cleanup completed"}
@@ -200,6 +217,50 @@ def stitch_handler(request: StitchRequest):
     except Exception as e:
         import traceback
         print("Error in stitch_handler:")
+        print("Error details:", str(e))
+        print("Traceback:")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/process/unified")
+async def unified_process_handler(request: UnifiedProcessRequest) -> Dict:
+    """
+    Unified processing endpoint with save/transcribe/describe options.
+    
+    Args:
+        request: Unified processing request with flexible options
+        
+    Returns:
+        Dict with processing results based on requested options
+    """
+    try:
+        # Acquire semaphore with timeout
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=429, detail=f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later.")
+        
+        try:
+            # Convert request to ProcessingOptions
+            options = ProcessingOptions(
+                save=request.save,
+                transcribe=request.transcribe,
+                describe=request.describe,
+                save_to_postgres=request.save_to_postgres,
+                save_to_qdrant=request.save_to_qdrant
+            )
+            
+            # Process the URL
+            result = await process_url_unified(str(request.url), options)
+            
+            return {"status": "success", "result": result}
+            
+        finally:
+            semaphore.release()
+            
+    except Exception as e:
+        import traceback
+        print("Error in unified_process_handler:")
         print("Error details:", str(e))
         print("Traceback:")
         print(traceback.format_exc())

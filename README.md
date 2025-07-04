@@ -11,7 +11,6 @@ A FastAPI-based service that processes social media content (Instagram posts, re
 
 - **Content Processing**
   - Video scene detection and extraction
-  - OCR text extraction from images and video frames
   - Audio transcription for videos
   - Tag and metadata extraction
 
@@ -25,7 +24,6 @@ A FastAPI-based service that processes social media content (Instagram posts, re
 
 - Python 3.11+
 - FFmpeg (for video processing)
-- Tesseract (for OCR)
 
 ## Installation
 
@@ -49,11 +47,11 @@ pip install -r requirements.txt
 4. Install system dependencies:
 ```bash
 # macOS
-brew install ffmpeg tesseract
+brew install ffmpeg
 
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install ffmpeg tesseract-ocr
+sudo apt-get install ffmpeg
 ```
 
 ## Usage
@@ -104,7 +102,6 @@ Process one or more URLs to extract content.
                         {
                             "start": 0.0,
                             "end": 5.0,
-                            "text": "OCR text from frame",
                             "confidence": 1.0,
                             "video": "base64-encoded video segment"  // If encode_base64=true
                         }
@@ -120,7 +117,7 @@ Process one or more URLs to extract content.
             ],
             "images": [  // For image content
                 {
-                    "text": "OCR text from image"
+                    "filename": "image.jpg"
                 }
             ]
         }
