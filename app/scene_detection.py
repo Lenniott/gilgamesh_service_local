@@ -3,7 +3,7 @@ import re
 import os
 import cv2
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import tempfile
 
 def detect_scenes(video_path: str, threshold: float = 0.22):
@@ -249,7 +249,9 @@ def extract_scene_cuts_and_extreme_frames(video_path: str, out_dir: str, thresho
     return scenes
 
 async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, threshold: float = 0.22, 
-                                         use_ai_analysis: bool = True) -> List[Dict]:
+                                         use_ai_analysis: bool = True,
+                                         transcript_data: Optional[List[Dict]] = None,
+                                         existing_scenes: Optional[List[Dict]] = None) -> List[Dict]:
     """
     Complete scene detection with AI analysis and cleanup.
     
@@ -258,6 +260,8 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
         out_dir: Output directory for temporary frames
         threshold: Scene detection threshold
         use_ai_analysis: Whether to use GPT-4 Vision for scene analysis
+        transcript_data: Optional transcript segments for enhanced context
+        existing_scenes: Optional existing scene descriptions for video-level context
         
     Returns:
         List of scene dictionaries with AI analysis:
@@ -267,13 +271,17 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
                 "end_time": float,
                 "ai_description": str,
                 "ai_tags": List[str],
-                "analysis_success": bool
+                "analysis_success": bool,
+                "has_transcript": bool,
+                "scene_transcript": str or None,
+                "has_video_context": bool
             }
         ]
     """
     from app.ai_scene_analysis import analyze_all_scenes_with_ai, cleanup_frame_images
     
-    print(f"🎬 Starting complete scene analysis for: {os.path.basename(video_path)}")
+    transcript_status = " with transcript" if transcript_data else ""
+    print(f"🎬 Starting complete scene analysis{transcript_status} for: {os.path.basename(video_path)}")
     
     # Step 1: Enhanced scene detection with extreme frames
     scenes_data = extract_scene_cuts_and_extreme_frames(video_path, out_dir, threshold)
@@ -285,7 +293,7 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
     # Step 2: AI analysis (if enabled)
     if use_ai_analysis:
         try:
-            analyzed_scenes = await analyze_all_scenes_with_ai(scenes_data)
+            analyzed_scenes = await analyze_all_scenes_with_ai(scenes_data, transcript_data, existing_scenes)
         except Exception as e:
             print(f"⚠️  AI analysis failed: {e}")
             # Continue without AI analysis
@@ -296,7 +304,9 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
                     "end_time": scene['end_time'],
                     "ai_description": "AI analysis not available",
                     "ai_tags": ["exercise", "movement", "mobility", "fitness", "training"],
-                    "analysis_success": False
+                    "analysis_success": False,
+                    "has_transcript": bool(transcript_data),
+                    "scene_transcript": None
                 })
     else:
         # Skip AI analysis
@@ -307,7 +317,9 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
                 "end_time": scene['end_time'],
                 "ai_description": "AI analysis disabled",
                 "ai_tags": [],
-                "analysis_success": False
+                "analysis_success": False,
+                "has_transcript": bool(transcript_data),
+                "scene_transcript": None
             })
     
     # Step 3: Cleanup frame images
@@ -319,15 +331,29 @@ async def extract_scenes_with_ai_analysis(video_path: str, out_dir: str, thresho
     # Step 4: Return clean result (without frame paths)
     clean_scenes = []
     for scene in analyzed_scenes:
-        clean_scenes.append({
+        clean_scene = {
             "start_time": scene['start_time'],
             "end_time": scene['end_time'],
             "ai_description": scene['ai_description'],
             "ai_tags": scene['ai_tags'],
             "analysis_success": scene['analysis_success']
-        })
+        }
+        
+        # Include transcript-related fields if available
+        if scene.get('has_transcript'):
+            clean_scene["has_transcript"] = scene['has_transcript']
+            clean_scene["scene_transcript"] = scene.get('scene_transcript')
+        
+        clean_scenes.append(clean_scene)
+    
+    success_count = sum(1 for scene in clean_scenes if scene.get('analysis_success', False))
+    transcript_scenes = sum(1 for scene in clean_scenes if scene.get('has_transcript', False))
     
     print(f"✅ Complete scene analysis finished: {len(clean_scenes)} scenes")
+    print(f"   📈 AI Success: {success_count}/{len(clean_scenes)} scenes")
+    if transcript_data:
+        print(f"   📝 With transcript context: {transcript_scenes}/{len(clean_scenes)} scenes")
+    
     return clean_scenes
 
 # Legacy function for backward compatibility

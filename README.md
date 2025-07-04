@@ -1,29 +1,44 @@
 # Gilgamesh Media Processing Service
 
-A FastAPI-based service that processes social media content (Instagram posts, reels, and YouTube videos) to extract media, text, and transcripts. The service provides a unified API for downloading, processing, and analyzing content from various platforms.
+A FastAPI-based service that processes social media content (Instagram posts, reels, and YouTube videos) with AI-powered scene analysis and transcript integration. **Now supports Instagram carousels with multiple videos!** The service provides a unified API for downloading, processing, and analyzing content with smart AI credit management.
 
 ## Features
 
 - **Multi-Platform Support**
-  - Instagram posts and reels
+  - Instagram posts and reels **with carousel support**
   - YouTube videos and shorts
-  - Extracts media, text, and metadata
+  - TikTok videos
 
-- **Content Processing**
-  - Video scene detection and extraction
-  - Audio transcription for videos
-  - Tag and metadata extraction
+- **Instagram Carousel Processing**
+  - **Automatic multi-video detection** from carousel URLs
+  - **Individual processing** of each video in carousel
+  - **Unified storage** with carousel indexing
+  - **Smart credit management** per video
+
+- **AI-Powered Content Processing**
+  - GPT-4 Vision scene analysis with transcript context
+  - Audio transcription with timestamping
+  - Smart AI credit management (avoids duplicate processing)
+  - Enhanced video context for better scene descriptions
+
+- **Database Integration**
+  - PostgreSQL for structured data storage
+  - Single-table architecture with carousel support
+  - Automatic video base64 storage per carousel video
+  - JSON storage for transcripts and scene descriptions
 
 - **Performance & Resource Management**
-  - URL-based caching with configurable TTL
-  - Background task processing
-  - Temporary file management
-  - Configurable base64 encoding for videos
+  - Smart caching to avoid AI credit waste
+  - Automatic temporary file cleanup
+  - Graceful audio handling (videos without audio)
+  - Concurrent request management
 
 ## Prerequisites
 
 - Python 3.11+
 - FFmpeg (for video processing)
+- PostgreSQL database
+- OpenAI API key (for GPT-4 Vision)
 
 ## Installation
 
@@ -54,164 +69,611 @@ sudo apt-get update
 sudo apt-get install ffmpeg
 ```
 
-## Usage
-
-### Starting the Service
-
+5. Set up environment variables:
 ```bash
-python -m app.main
+# Create .env file
+cp .env.example .env
+
+# Configure your credentials
+OPENAI_API_KEY=your_openai_api_key
+POSTGRES_URL=postgresql://user:password@localhost:5432/database
 ```
 
-The service will start on `http://localhost:8500` with automatic API documentation available at `http://localhost:8500/docs`.
-
-### API Endpoints
-
-#### 1. Process Content
+6. Set up the database:
 ```bash
-POST /process
+python setup_simple_db.py
 ```
 
-Process one or more URLs to extract content.
+## Core Use Cases
+
+### 1. Full Processing (Complete Video Analysis)
+**Use Case:** Process a video with all features - save video, generate transcript, create AI scene descriptions, store in database.
+
+**Single Video:**
+```bash
+curl -X POST "http://localhost:8500/process/full" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/YOUR_POST_ID/"}'
+```
+
+**Instagram Carousel (Multiple Videos):**
+```bash
+curl -X POST "http://localhost:8500/process/full" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+```
+
+**Carousel Response:**
+```json
+{
+  "success": true,
+  "message": "Carousel processing completed successfully",
+  "carousel_info": {
+    "is_carousel": true,
+    "total_videos": 3,
+    "processed_videos": 3
+  },
+  "videos": [
+    {
+      "carousel_index": 0,
+      "video_id": "uuid-1",
+      "processing": {"transcription": true, "scene_analysis": true},
+      "results": {"transcript_data": [...], "scenes_data": [...]}
+    },
+    {
+      "carousel_index": 1,
+      "video_id": "uuid-2",
+      "processing": {"transcription": true, "scene_analysis": true},
+      "results": {"transcript_data": [...], "scenes_data": [...]}
+    },
+    {
+      "carousel_index": 2,
+      "video_id": "uuid-3",
+      "processing": {"transcription": true, "scene_analysis": true},
+      "results": {"transcript_data": [...], "scenes_data": [...]}
+    }
+  ],
+  "video_ids": ["uuid-1", "uuid-2", "uuid-3"]
+}
+```
+
+**Perfect for:** Content archival, complete video analysis, building video libraries, **carousel content processing**.
+
+### 2. Raw Transcript Only (No Storage)
+**Use Case:** Extract transcript data without any database storage or scene analysis.
+
+```bash
+curl -X POST "http://localhost:8500/process/transcript-only" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+```
+
+**Carousel Transcript Response:**
+```json
+{
+  "success": true,
+  "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+  "carousel_info": {
+    "is_carousel": true,
+    "total_videos": 3
+  },
+  "transcript_data": [
+    {
+      "carousel_index": 0,
+      "transcript": [
+        {"start": 0.0, "end": 5.2, "text": "Welcome to today's workout session..."}
+      ]
+    },
+    {
+      "carousel_index": 1,
+      "transcript": [
+        {"start": 0.0, "end": 8.1, "text": "Now let's move to the next exercise..."}
+      ]
+    },
+    {
+      "carousel_index": 2,
+      "transcript": [
+        {"start": 0.0, "end": 6.3, "text": "Finally, we'll cool down with stretches..."}
+      ]
+    }
+  ]
+}
+```
+
+**Perfect for:** Quick transcript extraction, content analysis, subtitle generation, **multi-video transcript compilation**.
+
+### 3. Vector Database Storage (Qdrant)
+**Use Case:** Process transcript and store in vector database for semantic search without saving the video.
+
+```bash
+curl -X POST "http://localhost:8500/process/qdrant-only" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/YOUR_POST_ID/"}'
+```
+
+**Perfect for:** Building searchable knowledge bases, semantic content discovery, **carousel content indexing**.
+
+## Instagram Carousel Support
+
+### How Carousels Work
+
+**URL Processing:**
+- Input: `https://www.instagram.com/p/DLPa9I7sU9Y` (carousel with 3 videos)
+- System automatically detects multiple videos
+- Each video processed individually with `carousel_index` (0, 1, 2, etc.)
+- All videos stored under same normalized URL
+
+**Database Storage:**
+```sql
+-- Each video gets its own row with carousel_index
+simple_videos:
+  url='https://www.instagram.com/p/DLPa9I7sU9Y', carousel_index=0, video_base64='...', transcript=[...], descriptions=[...]
+  url='https://www.instagram.com/p/DLPa9I7sU9Y', carousel_index=1, video_base64='...', transcript=[...], descriptions=[...]
+  url='https://www.instagram.com/p/DLPa9I7sU9Y', carousel_index=2, video_base64='...', transcript=[...], descriptions=[...]
+```
+
+### Carousel-Specific Endpoints
+
+#### `/process/carousel` - Get Existing Carousel Videos
+```bash
+curl -X POST "http://localhost:8500/process/carousel" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/", "include_base64": false}'
+```
+
+#### `/carousel` - Get Carousel by URL (Query Parameter)
+```bash
+curl "http://localhost:8500/carousel?url=https://www.instagram.com/p/DLPa9I7sU9Y/"
+```
+
+### Smart Carousel Processing
+
+**Credit Management:**
+- Each video in carousel checked individually
+- Only missing videos/features processed
+- Existing videos returned from database
+- Significant AI credit savings on repeat requests
+
+**Example - Mixed Processing:**
+```json
+{
+  "videos": [
+    {
+      "carousel_index": 0,
+      "processing": {"ai_credits_saved": true},  // Already processed
+      "message": "Retrieved from database"
+    },
+    {
+      "carousel_index": 1,
+      "processing": {"ai_credits_saved": false}, // Newly processed
+      "message": "Processed with AI analysis"
+    },
+    {
+      "carousel_index": 2,
+      "processing": {"ai_credits_saved": true},  // Already processed
+      "message": "Retrieved from database"
+    }
+  ]
+}
+```
+
+## API Endpoints
+
+### Core Processing Endpoints
+
+#### `/process/full` - Complete Processing
+```bash
+POST /process/full
+```
 
 **Request Body:**
 ```json
 {
-    "urls": [
-        "https://www.instagram.com/p/...",
-        "https://youtube.com/shorts/..."
-    ],
-    "encode_base64": true,    // Optional: Include base64-encoded video data
-    "cleanup_temp": true      // Optional: Clean up temp files and cache after processing
+    "url": "https://www.instagram.com/p/..."
 }
 ```
 
-**Response:**
+- **Function:** Download, save, transcribe, describe, save to PostgreSQL
+- **Parameters:** Just URL - everything else is automatic
+- **Use Case:** Full video processing with all features
+- **Carousel Support:** ✅ Processes all videos in carousel
+
+#### `/process/transcript-only` - Raw Transcript Only
+```bash
+POST /process/transcript-only
+```
+
+**Request Body:**
 ```json
 {
-    "status": "success",
-    "results": [
-        {
-            "url": "https://www.instagram.com/p/...",
-            "title": "Post Title",
-            "description": "Post description...",
-            "tags": ["tag1", "tag2"],
-            "videos": [  // For video content
-                {
-                    "id": "uuid",
-                    "scenes": [
-                        {
-                            "start": 0.0,
-                            "end": 5.0,
-                            "confidence": 1.0,
-                            "video": "base64-encoded video segment"  // If encode_base64=true
-                        }
-                    ],
-                    "transcript": [
-                        {
-                            "start": 0.0,
-                            "end": 5.0,
-                            "text": "Transcribed text"
-                        }
-                    ]
-                }
-            ],
-            "images": [  // For image content
-                {
-                    "filename": "image.jpg"
-                }
-            ]
-        }
-    ]
+    "url": "https://www.instagram.com/p/..."
 }
 ```
 
-#### 2. Cache Management
+- **Function:** Download, transcribe, return raw transcript without saving
+- **Parameters:** Just URL
+- **Response:** Clean transcript array only (per carousel video)
+- **Use Case:** Quick transcript extraction
+- **Carousel Support:** ✅ Returns transcripts for all videos
 
-**Get Cache Statistics:**
+#### `/process/qdrant-only` - Vector Storage (Coming Soon)
 ```bash
-GET /cache/stats
+POST /process/qdrant-only
 ```
 
-**Response:**
+**Request Body:**
 ```json
 {
-    "total_entries": 10,
-    "total_size_bytes": 1024000,
-    "oldest_entry": "2024-03-20T10:00:00",
-    "newest_entry": "2024-03-20T15:00:00",
-    "ttl_hours": 24
+    "url": "https://www.instagram.com/p/..."
 }
 ```
 
-**Clear Cache:**
+- **Function:** Download, transcribe, save to Qdrant without saving video
+- **Parameters:** Just URL
+- **Use Case:** Vector database storage for semantic search
+- **Carousel Support:** ✅ Processes all videos for vector storage
+- **Status:** ⚠️ Not yet implemented in simple processor
+
+### Flexible Processing Endpoints
+
+#### `/process/simple` - Configurable Processing
 ```bash
-POST /cleanup?clear_cache=true
+POST /process/simple
 ```
 
-#### 3. Cleanup
-
-**Clean Temporary Files and Cache:**
-```bash
-POST /cleanup
+**Request Body:**
+```json
+{
+    "url": "https://www.instagram.com/p/...",
+    "save_video": true,      // Save video base64 to database
+    "transcribe": true,      // Generate transcript
+    "describe": true,        // Generate AI scene descriptions
+    "include_base64": false  // Include base64 in response (large!)
+}
 ```
 
-**Options:**
-- `clear_cache=true` (default): Clear both temp files and cache
-- `clear_cache=false`: Clear only temp files
+**Carousel Support:** ✅ All options apply to each video in carousel
 
-### Examples
-
-1. Process an Instagram post:
+#### `/process/unified` - Advanced Processing with Database Options
 ```bash
-curl -X POST "http://localhost:8500/process" \
+POST /process/unified
+```
+
+**Request Body:**
+```json
+{
+    "url": "https://www.instagram.com/p/...",
+    "save": false,           // Save video to database
+    "transcribe": "raw",     // "raw", "timestamp", or null (NOT boolean!)
+    "describe": false,       // Generate scene descriptions
+    "save_to_postgres": true,// Save to PostgreSQL database
+    "save_to_qdrant": true   // Save to Qdrant vector database
+}
+```
+
+**Transcribe Options:**
+- `"raw"` - Enable raw transcription
+- `"timestamp"` - Enable timestamped transcription  
+- `null` - Disable transcription (NOT `false`!)
+
+**Carousel Support:** ✅ Full compatibility with carousel processing
+**Use Case:** When you need granular control over database storage options
+**Status:** ⚠️ **Partial Implementation** - `save_to_postgres` works, `save_to_qdrant` needs implementation
+**Note:** Currently maps to simple processor (PostgreSQL only)
+
+### Carousel-Specific Endpoints
+
+#### `/process/carousel` - Get Carousel Videos
+```bash
+POST /process/carousel
+```
+
+**Request Body:**
+```json
+{
+    "url": "https://www.instagram.com/p/...",
+    "include_base64": false
+}
+```
+
+#### `/carousel` - Get Carousel by URL
+```bash
+GET /carousel?url=https://www.instagram.com/p/...&include_base64=false
+```
+
+### Utility Endpoints
+
+#### `/video/{video_id}` - Get Specific Video
+```bash
+GET /video/{video_id}?include_base64=false
+```
+
+#### `/search` - Search Videos
+```bash
+GET /search?q=exercise&limit=10
+```
+
+#### `/videos` - List Recent Videos
+```bash
+GET /videos?limit=20
+```
+
+#### `/health` - Health Check
+```bash
+GET /health
+```
+
+## Smart AI Credit Management
+
+The system automatically checks for existing data to avoid wasting AI credits:
+
+**First Request (Carousel):**
+```json
+{
+  "success": true,
+  "message": "Carousel processing completed successfully",
+  "processing": {
+    "total_videos_processed": 3,
+    "ai_credits_saved_count": 0
+  },
+  "videos": [
+    {"carousel_index": 0, "processing": {"ai_credits_saved": false}},
+    {"carousel_index": 1, "processing": {"ai_credits_saved": false}},
+    {"carousel_index": 2, "processing": {"ai_credits_saved": false}}
+  ]
+}
+```
+
+**Second Request (Same Carousel URL):**
+```json
+{
+  "success": true,
+  "message": "Carousel processing completed successfully",
+  "processing": {
+    "total_videos_processed": 3,
+    "ai_credits_saved_count": 3
+  },
+  "videos": [
+    {"carousel_index": 0, "processing": {"ai_credits_saved": true}},
+    {"carousel_index": 1, "processing": {"ai_credits_saved": true}},
+    {"carousel_index": 2, "processing": {"ai_credits_saved": true}}
+  ]
+}
+```
+
+## Enhanced AI Scene Analysis
+
+The system provides contextual scene analysis:
+
+1. **Transcript Integration:** AI uses spoken content to enhance visual scene descriptions
+2. **Video Context:** When available, AI uses full video context for better scene understanding
+3. **Graceful Audio Handling:** Videos without audio are processed with visual analysis only
+4. **Carousel Context:** Each video in carousel analyzed individually with its own context
+
+**Example Scene Analysis (Carousel Video):**
+```json
+{
+  "carousel_index": 1,
+  "scenes": [
+    {
+      "start_time": 0.0,
+      "end_time": 8.5,
+      "ai_description": "Person demonstrating proper squat form with emphasis on knee alignment, as mentioned in the transcript about 'keeping knees behind toes'",
+      "ai_tags": ["squat", "form", "knee-alignment", "exercise-technique"],
+      "has_transcript": true,
+      "has_video_context": true
+    }
+  ]
+}
+```
+
+## Database Schema
+
+The system uses a simplified single-table approach with carousel support:
+
+```sql
+simple_videos (
+    id UUID PRIMARY KEY,
+    url TEXT NOT NULL,               -- Normalized URL (without img_index)
+    carousel_index INTEGER DEFAULT 0, -- Index for carousel videos (0 for single videos)
+    video_base64 TEXT,               -- Base64 encoded video
+    transcript JSONB,                -- Transcript segments
+    descriptions JSONB,              -- AI scene descriptions
+    tags TEXT[],                     -- Extracted tags
+    metadata JSONB,                  -- Additional metadata
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    
+    -- Unique constraint for URL + carousel_index combination
+    UNIQUE(url, carousel_index)
+)
+```
+
+**Carousel Storage Example:**
+```sql
+-- Single video (carousel_index = 0)
+INSERT INTO simple_videos (url, carousel_index, video_base64, ...)
+VALUES ('https://www.instagram.com/p/ABC123/', 0, 'base64_data', ...);
+
+-- Carousel videos (carousel_index = 0, 1, 2)
+INSERT INTO simple_videos (url, carousel_index, video_base64, ...)
+VALUES 
+  ('https://www.instagram.com/p/DLPa9I7sU9Y/', 0, 'base64_video_1', ...),
+  ('https://www.instagram.com/p/DLPa9I7sU9Y/', 1, 'base64_video_2', ...),
+  ('https://www.instagram.com/p/DLPa9I7sU9Y/', 2, 'base64_video_3', ...);
+```
+
+## Examples
+
+### Complete Carousel Processing
+```bash
+# Full processing: save + transcribe + describe + database storage
+curl -X POST "http://localhost:8500/process/full" \
      -H "Content-Type: application/json" \
-     -d '{"urls": ["https://www.instagram.com/p/..."]}' \
-     | python -m json.tool
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
 ```
 
-2. Process multiple URLs without base64 encoding:
+### Flexible Processing Options
 ```bash
-curl -X POST "http://localhost:8500/process" \
+# Custom processing with specific options
+curl -X POST "http://localhost:8500/process/simple" \
      -H "Content-Type: application/json" \
      -d '{
-         "urls": [
-             "https://www.instagram.com/p/...",
-             "https://youtube.com/shorts/..."
-         ],
-         "encode_base64": false
-     }' \
-     | python -m json.tool
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save_video": true,
+       "transcribe": true,
+       "describe": true,
+       "include_base64": false
+     }'
 ```
 
-3. Process without cleanup:
+### Quick Carousel Transcript Extraction
 ```bash
-curl -X POST "http://localhost:8500/process" \
+# Transcript only - no database storage
+curl -X POST "http://localhost:8500/process/transcript-only" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}' \
+     | jq '.transcript_data'
+```
+
+### Retrieve Existing Carousel Data
+```bash
+# Get stored carousel videos with AI analysis
+curl -X POST "http://localhost:8500/process/carousel" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+
+# Alternative GET method
+curl "http://localhost:8500/carousel?url=https://www.instagram.com/p/DLPa9I7sU9Y/"
+```
+
+### Advanced Database Control
+```bash
+# PostgreSQL only (skip Qdrant)
+curl -X POST "http://localhost:8500/process/unified" \
      -H "Content-Type: application/json" \
      -d '{
-         "urls": ["https://www.instagram.com/p/..."],
-         "cleanup_temp": false
-     }' \
-     | python -m json.tool
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save": true,
+       "transcribe": "raw",
+       "describe": true,
+       "save_to_postgres": true,
+       "save_to_qdrant": false
+     }'
+
+# Future: Both databases (when Qdrant is implemented)
+curl -X POST "http://localhost:8500/process/unified" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save": true,
+       "transcribe": "raw", 
+       "describe": true,
+       "save_to_postgres": true,
+       "save_to_qdrant": true
+     }'
 ```
 
-## Configuration
+### Search and Discovery
+```bash
+# Search for specific exercises
+curl "http://localhost:8500/search?q=squat&limit=5"
 
-The service uses the following default configurations:
+# List recent videos
+curl "http://localhost:8500/videos?limit=10"
 
-- **Cache:**
-  - TTL: 24 hours
-  - Location: `app/cache/`
-  - Thread-safe operations
+# Get specific video by ID
+curl "http://localhost:8500/video/your-video-id-here"
+```
 
-- **Temporary Files:**
-  - Location: `app/temp/`
-  - UUID-based directories
-  - Automatic cleanup (configurable)
+## Response Format
 
-- **Video Processing:**
-  - Scene detection threshold: 0.22
-  - Target video width: 480px
-  - Base64 encoding: enabled by default
+### Carousel Processing Response
+```json
+{
+  "success": true,
+  "message": "Carousel processing completed successfully",
+  "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+  "normalized_url": "https://www.instagram.com/p/DLPa9I7sU9Y",
+  "carousel_info": {
+    "is_carousel": true,
+    "total_videos": 7,
+    "processed_videos": 7
+  },
+  "processing": {
+    "download": true,
+    "total_videos_processed": 7,
+    "ai_credits_saved_count": 0
+  },
+  "videos": [
+    {
+      "carousel_index": 0,
+      "video_id": "uuid-here",
+      "processing": {
+        "transcription": false,
+        "scene_analysis": true,
+        "used_existing_data": false,
+        "ai_credits_saved": false
+      },
+      "results": {
+        "transcript_data": null,
+        "scenes_data": [
+          {
+            "start_time": 0.0,
+            "end_time": 21.53,
+            "description": "Person performing bodyweight squats with proper form...",
+            "analysis_success": true
+          }
+        ],
+        "tags": ["balance", "bodyweight", "strength", "lower body", "squat"]
+      },
+      "database": {
+        "saved": true,
+        "video_stored": true
+      }
+    }
+    // ... more videos
+  ],
+  "video_ids": ["uuid-1", "uuid-2", "uuid-3", ...]
+}
+```
+
+### Search Response
+```json
+{
+  "success": true,
+  "query": "squat",
+  "results": [
+    {
+      "id": "uuid-here",
+      "url": "https://www.instagram.com/p/DLPa9I7sU9Y",
+      "carousel_index": 0,
+      "tags": ["balance", "bodyweight", "strength", "lower body", "squat"],
+      "first_description": "Person performing bodyweight squats...",
+      "created_at": "2025-07-04T20:13:17.225341+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Get Existing Carousel Videos
+```bash
+curl "http://localhost:8500/carousel?url=https://www.instagram.com/p/DLPa9I7sU9Y/"
+```
+
+### Custom Carousel Processing Options
+```bash
+curl -X POST "http://localhost:8500/process/simple" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save_video": true,
+       "transcribe": true,
+       "describe": false,
+       "include_base64": false
+     }'
+```
 
 ## Error Handling
 
@@ -219,17 +681,39 @@ The service provides detailed error responses:
 
 ```json
 {
-    "status": "error",
-    "error": "Error message",
-    "url": "https://..."  // For URL-specific errors
+    "success": false,
+    "error": "No video files found after download",
+    "url": "https://..."
 }
 ```
 
-Common error scenarios:
+Common scenarios:
 - Invalid URLs
-- Unsupported content types
+- Videos without audio (handled gracefully)
 - Processing failures
-- Cache/storage issues
+- Database connection issues
+- **Carousel processing failures (individual video failures don't stop others)**
+
+## Configuration
+
+### Environment Variables
+```bash
+# Required
+OPENAI_API_KEY=your_openai_api_key
+POSTGRES_URL=postgresql://user:password@localhost:5432/database
+
+# Optional
+MAX_CONCURRENT_REQUESTS=10
+REQUEST_TIMEOUT_SECONDS=30
+```
+
+### Default Settings
+- **Concurrent Requests:** 10 maximum
+- **Request Timeout:** 30 seconds
+- **Scene Detection Threshold:** 0.22
+- **Video Downscaling:** 480px width
+- **Automatic Cleanup:** Enabled
+- **Carousel Support:** Enabled by default
 
 ## Development
 
@@ -237,32 +721,50 @@ Common error scenarios:
 ```
 gilgamesh_service_local/
 ├── app/
-│   ├── main.py           # FastAPI application
-│   ├── media_utils.py    # Core processing logic
-│   ├── cache.py         # Caching implementation
-│   ├── downloaders.py   # Media downloaders
-│   ├── ocr_utils.py     # OCR processing
-│   ├── transcription.py # Audio transcription
-│   └── utils.py         # Helper functions
+│   ├── main.py                      # FastAPI application with carousel endpoints
+│   ├── simple_unified_processor.py  # Core processing logic with carousel support
+│   ├── simple_db_operations.py     # Database operations with carousel methods
+│   ├── ai_scene_analysis.py        # GPT-4 Vision analysis
+│   ├── scene_detection.py          # Scene detection
+│   ├── transcription.py            # Audio transcription
+│   ├── downloaders.py              # Media downloaders (carousel-aware)
+│   └── db_connections.py           # Database connections
+├── setup_simple_db.py              # Database setup
+├── create_simple_videos_table.sql  # Database schema with carousel support
 ├── requirements.txt
 └── README.md
 ```
 
-### Adding New Features
+### Testing
+```bash
+# Run the simplified system test
+python test_simple_system.py
 
-1. Follow the existing code structure
-2. Add type hints and docstrings
-3. Update the plan.md with new tasks
-4. Add appropriate error handling
-5. Update this README with new features
+# Run database tests
+python test_db_direct.py
+
+# Test carousel functionality
+curl -X POST "http://localhost:8500/process/full" \
+     -H "Content-Type: application/json" \
+     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+```
+
+## Performance
+
+- **Smart Caching:** Avoids duplicate AI processing per carousel video
+- **Automatic Cleanup:** Temporary files cleaned after processing
+- **Concurrent Processing:** Handles multiple requests efficiently
+- **Optimized Database:** Single-table design for fast queries
+- **Carousel Efficiency:** Individual video credit management in carousels
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+3. Follow the existing code patterns
+4. Add tests for new features
+5. Update documentation
+6. Create a Pull Request
 
 ## License
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-AI Scene Analysis using GPT-4 Vision
+AI Scene Analysis using GPT-4 Vision with Transcript Integration
 Analyzes extreme frames from scene detection to generate descriptions and tags
+Enhanced with transcript data for richer, more accurate scene descriptions
 """
 
 import os
@@ -39,16 +40,137 @@ async def encode_image_to_base64(image_path: str) -> str:
         print(f"Error encoding image {image_path}: {e}")
         return ""
 
-async def analyze_scene_with_gpt4_vision(extreme_frames: List[Dict], scene_index: int, 
-                                       start_time: float, end_time: float) -> Dict:
+def find_relevant_transcript_segments(transcript_data: List[Dict], start_time: float, end_time: float) -> str:
     """
-    Analyze a scene's extreme frames using GPT-4 Vision.
+    Find transcript segments that overlap with the scene timeframe.
+    
+    Args:
+        transcript_data: List of transcript segments with start/end times
+        start_time: Scene start time in seconds
+        end_time: Scene end time in seconds
+        
+    Returns:
+        Combined text from overlapping transcript segments
+    """
+    if not transcript_data:
+        return ""
+    
+    relevant_segments = []
+    
+    for segment in transcript_data:
+        seg_start = segment.get('start', 0.0)
+        seg_end = segment.get('end', 0.0)
+        
+        # Check if segment overlaps with scene timeframe
+        if seg_start < end_time and seg_end > start_time:
+            relevant_segments.append(segment.get('text', '').strip())
+    
+    return " ".join(relevant_segments).strip()
+
+def create_video_context_from_scenes(scenes_data: List[Dict], transcript_data: Optional[List[Dict]] = None) -> str:
+    """
+    Create video-level context from existing scene descriptions and transcript.
+    This provides comprehensive context for enhanced AI analysis.
+    
+    Args:
+        scenes_data: List of scene dictionaries with existing descriptions
+        transcript_data: Optional transcript segments
+        
+    Returns:
+        Compiled video context string, filtered of AI prompts
+    """
+    context_parts = []
+    
+    # Add full transcript context if available
+    if transcript_data:
+        full_transcript = " ".join([seg.get('text', '').strip() for seg in transcript_data]).strip()
+        if full_transcript:
+            context_parts.append(f"FULL TRANSCRIPT: {full_transcript}")
+    
+    # Add scene descriptions if available
+    if scenes_data:
+        scene_descriptions = []
+        for i, scene in enumerate(scenes_data):
+            # Get existing description - could be from 'ai_description' or 'description' field
+            description = scene.get('ai_description') or scene.get('description', '')
+            if description:
+                # Filter out AI prompts and system text - keep only the actual description
+                filtered_description = _filter_ai_prompts(description)
+                if filtered_description:
+                    start_time = scene.get('start_time', 0)
+                    end_time = scene.get('end_time', 0)
+                    scene_descriptions.append(f"Scene {i+1} ({start_time:.1f}s-{end_time:.1f}s): {filtered_description}")
+        
+        if scene_descriptions:
+            context_parts.append(f"PREVIOUS SCENE ANALYSIS: {' | '.join(scene_descriptions)}")
+    
+    return " | ".join(context_parts) if context_parts else ""
+
+def _filter_ai_prompts(text: str) -> str:
+    """
+    Filter out AI prompts and system text from descriptions, keeping only the actual content.
+    
+    Args:
+        text: Raw text that may contain AI prompts
+        
+    Returns:
+        Filtered text with prompts removed
+    """
+    if not text:
+        return ""
+    
+    # Common AI prompt patterns to remove
+    prompt_patterns = [
+        "analyze this",
+        "provide a description",
+        "describe the movement",
+        "what exercise",
+        "respond in json",
+        "format:",
+        "please analyze",
+        "based on the frames",
+        "movement/exercise",
+        "exercise type",
+        "muscle groups",
+        "movement patterns"
+    ]
+    
+    # Split into sentences and filter
+    sentences = text.split('.')
+    filtered_sentences = []
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+            
+        # Check if sentence contains prompt patterns
+        is_prompt = any(pattern in sentence.lower() for pattern in prompt_patterns)
+        
+        # Keep sentences that are actual descriptions (not prompts)
+        if not is_prompt and len(sentence) > 20:  # Reasonable length for actual descriptions
+            filtered_sentences.append(sentence)
+    
+    result = '. '.join(filtered_sentences)
+    if result and not result.endswith('.'):
+        result += '.'
+    
+    return result.strip()
+
+async def analyze_scene_with_gpt4_vision(extreme_frames: List[Dict], scene_index: int, 
+                                       start_time: float, end_time: float,
+                                       transcript_data: Optional[List[Dict]] = None,
+                                       video_context: Optional[str] = None) -> Dict:
+    """
+    Analyze a scene's extreme frames using GPT-4 Vision with optional transcript and video context.
     
     Args:
         extreme_frames: List of extreme frame data with frame_path, frame_type, etc.
         scene_index: Scene number for reference
         start_time: Scene start time in seconds
         end_time: Scene end time in seconds
+        transcript_data: Optional transcript segments for context
+        video_context: Optional video-level context from previous scene analysis
         
     Returns:
         Dict with AI analysis: description, tags, and scene metadata
@@ -67,7 +189,13 @@ async def analyze_scene_with_gpt4_vision(extreme_frames: List[Dict], scene_index
             "analysis_success": False
         }
     
-    print(f"🤖 Analyzing scene {scene_index + 1} with {len(key_frames)} key frames using GPT-4 Vision...")
+    # Extract relevant transcript for this scene
+    scene_transcript = ""
+    if transcript_data:
+        scene_transcript = find_relevant_transcript_segments(transcript_data, start_time, end_time)
+    
+    transcript_context = f" (transcript available)" if scene_transcript else " (no transcript)"
+    print(f"🤖 Analyzing scene {scene_index + 1} with {len(key_frames)} key frames{transcript_context}...")
     
     try:
         # Encode all key frames to base64
@@ -92,14 +220,8 @@ async def analyze_scene_with_gpt4_vision(extreme_frames: List[Dict], scene_index
                 "analysis_success": False
             }
         
-        # Prepare GPT-4 Vision prompt
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"""Analyze this sequence of {len(encoded_frames)} frames from a mobility/exercise video scene.
+        # Build context-aware prompt
+        base_prompt = f"""Analyze this sequence of {len(encoded_frames)} frames from a mobility/exercise video scene.
 
 The frames represent key movement positions:
 - START: Beginning position  
@@ -107,18 +229,49 @@ The frames represent key movement positions:
 - PEAK: Opposite extreme of the movement
 - END: Final position
 
+Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
+
+        # Add transcript context if available
+        if scene_transcript:
+            base_prompt += f"""
+
+TRANSCRIPT CONTEXT for this scene:
+"{scene_transcript}"
+
+Use this transcript to better understand what exercise/movement is being performed and provide more accurate descriptions."""
+        else:
+            base_prompt += "\n\nNo transcript is available for this scene."
+        
+        # Add video-level context if available
+        if video_context:
+            base_prompt += f"""
+
+VIDEO CONTEXT (full video understanding):
+{video_context}
+
+Use this broader context to understand how this scene fits into the overall video flow and exercise sequence."""
+
+        base_prompt += """
+
 Please analyze what exercise or movement is being performed and provide:
 
 1. A detailed description (2-3 sentences) of the movement/exercise being performed
 2. Exactly 5 relevant tags (exercise type, muscle groups, movement patterns, etc.)
 
 Respond in this exact JSON format:
-{{
+{
     "description": "Detailed description of the movement/exercise being performed",
     "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
-}}
+}"""
 
-Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
+        # Prepare GPT-4 Vision prompt
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": base_prompt
                     }
                 ]
             }
@@ -166,6 +319,8 @@ Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
                     "description": analysis_data.get("description", ""),
                     "tags": analysis_data.get("tags", [])[:5],  # Ensure max 5 tags
                     "analysis_success": True,
+                    "has_transcript": bool(scene_transcript),
+                    "scene_transcript": scene_transcript if scene_transcript else None,
                     "raw_response": response_text
                 }
             else:
@@ -192,6 +347,8 @@ Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
                     "description": description or "Movement analysis completed",
                     "tags": tags[:5] if tags else ["exercise", "movement", "mobility", "fitness", "training"],
                     "analysis_success": True,
+                    "has_transcript": bool(scene_transcript),
+                    "scene_transcript": scene_transcript if scene_transcript else None,
                     "raw_response": response_text
                 }
                 
@@ -206,6 +363,8 @@ Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
                 "description": "AI analysis completed but format parsing failed",
                 "tags": ["exercise", "movement", "mobility", "fitness", "training"],
                 "analysis_success": False,
+                "has_transcript": bool(scene_transcript),
+                "scene_transcript": scene_transcript if scene_transcript else None,
                 "raw_response": response_text
             }
             
@@ -217,20 +376,36 @@ Scene timing: {start_time:.2f}s - {end_time:.2f}s"""
             "end_time": end_time,
             "description": f"Analysis failed: {str(e)}",
             "tags": [],
-            "analysis_success": False
+            "analysis_success": False,
+            "has_transcript": bool(scene_transcript) if transcript_data else False,
+            "scene_transcript": scene_transcript if scene_transcript else None
         }
 
-async def analyze_all_scenes_with_ai(scenes_data: List[Dict]) -> List[Dict]:
+async def analyze_all_scenes_with_ai(scenes_data: List[Dict], transcript_data: Optional[List[Dict]] = None, 
+                                   existing_scenes: Optional[List[Dict]] = None) -> List[Dict]:
     """
-    Analyze all scenes using GPT-4 Vision.
+    Analyze all scenes using GPT-4 Vision with optional transcript and video context.
     
     Args:
         scenes_data: List of scene dictionaries from enhanced scene detection
+        transcript_data: Optional list of transcript segments for context
+        existing_scenes: Optional existing scene descriptions for video-level context
         
     Returns:
         List of scene dictionaries with AI analysis added
     """
-    print(f"🧠 Starting AI analysis of {len(scenes_data)} scenes...")
+    transcript_status = f" with transcript context" if transcript_data else ""
+    video_context_status = f" with video context" if existing_scenes else ""
+    context_info = f"{transcript_status}{video_context_status}" if transcript_status or video_context_status else " (visual only)"
+    
+    print(f"🧠 Starting AI analysis of {len(scenes_data)} scenes{context_info}...")
+    
+    # Create video-level context from existing scenes and transcript
+    video_context = None
+    if existing_scenes or transcript_data:
+        video_context = create_video_context_from_scenes(existing_scenes or [], transcript_data)
+        if video_context:
+            print(f"📚 Created video context from {len(existing_scenes) if existing_scenes else 0} existing scenes and {'transcript' if transcript_data else 'no transcript'}")
     
     # Analyze scenes concurrently (but limit concurrency to avoid API limits)
     semaphore = asyncio.Semaphore(3)  # Max 3 concurrent API calls
@@ -241,7 +416,9 @@ async def analyze_all_scenes_with_ai(scenes_data: List[Dict]) -> List[Dict]:
                 scene_data['extreme_frames'],
                 index,
                 scene_data['start_time'],
-                scene_data['end_time']
+                scene_data['end_time'],
+                transcript_data,
+                video_context
             )
             
             # Merge the analysis with the original scene data
@@ -249,14 +426,26 @@ async def analyze_all_scenes_with_ai(scenes_data: List[Dict]) -> List[Dict]:
                 **scene_data,
                 "ai_description": analysis['description'],
                 "ai_tags": analysis['tags'],
-                "analysis_success": analysis['analysis_success']
+                "analysis_success": analysis['analysis_success'],
+                "has_transcript": analysis.get('has_transcript', False),
+                "scene_transcript": analysis.get('scene_transcript'),
+                "has_video_context": bool(video_context)
             }
     
     # Process all scenes
     tasks = [analyze_single_scene(scene, i) for i, scene in enumerate(scenes_data)]
     analyzed_scenes = await asyncio.gather(*tasks)
     
+    success_count = sum(1 for scene in analyzed_scenes if scene.get('analysis_success', False))
+    transcript_count = sum(1 for scene in analyzed_scenes if scene.get('has_transcript', False))
+    video_context_count = sum(1 for scene in analyzed_scenes if scene.get('has_video_context', False))
+    
     print(f"✅ Completed AI analysis of {len(analyzed_scenes)} scenes")
+    print(f"   📈 Success rate: {success_count}/{len(analyzed_scenes)} scenes")
+    if transcript_data:
+        print(f"   📝 Transcript context: {transcript_count}/{len(analyzed_scenes)} scenes")
+    if video_context:
+        print(f"   🎬 Video context: {video_context_count}/{len(analyzed_scenes)} scenes")
     
     return analyzed_scenes
 

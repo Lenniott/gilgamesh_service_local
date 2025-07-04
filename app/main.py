@@ -1,31 +1,20 @@
 # main.py
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
-from typing import List, Optional, Dict, Union
+from typing import Optional, Dict
 import uvicorn
 import os
-import traceback
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 # Import your actual functions
-from app.media_utils import process_single_url, process_and_cleanup
-from app.cleanup import cleanup_temp_folder
-from app.stitch_scenes import stitch_scenes_to_base64
-from app.downloaders import download_media_and_metadata
-from app.video_processing import cleanup_temp_files
-from app.cache import Cache
+from app.simple_unified_processor import process_video_unified_simple, get_carousel_videos
 from app.utils import is_valid_url
-from app.unified_processor import process_url_unified, ProcessingOptions
-
-# Initialize cache
-cache = Cache(ttl_hours=24)  # 24 hour TTL
 
 app = FastAPI(
     title="Gilgamesh Media Processing Service",
-    description="Process Instagram posts, reels, and YouTube videos to extract media, text, and transcripts",
-    version="1.0.0"
+    description="Process Instagram posts, reels, and YouTube videos with AI scene analysis and transcript integration. Supports Instagram carousels with multiple videos.",
+    version="2.2.2"
 )
 
 # Add CORS middleware
@@ -42,33 +31,6 @@ MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", 10))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", 30))
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-class URLRequest(BaseModel):
-    url: HttpUrl
-    cleanup_temp: bool = True
-    threshold: float = 0.22
-    encode_base64: bool = True
-
-class URLBatchRequest(BaseModel):
-    urls: List[HttpUrl]
-    cleanup_temp: bool = True
-    threshold: float = 0.22
-
-class ProcessResponse(BaseModel):
-    status: str
-    results: List[Dict]
-
-class ErrorResponse(BaseModel):
-    status: str = "error"
-    error: str
-    url: Optional[str] = None
-
-class SceneInput(BaseModel):
-    video: str  # base64 string
-    audio: Optional[str] = None  # optional base64 string
-
-class StitchRequest(BaseModel):
-    scenes: List[SceneInput]
-
 class UnifiedProcessRequest(BaseModel):
     url: HttpUrl
     save: bool = False
@@ -77,194 +39,344 @@ class UnifiedProcessRequest(BaseModel):
     save_to_postgres: bool = True
     save_to_qdrant: bool = True
 
+class SimpleProcessRequest(BaseModel):
+    url: HttpUrl
+    save_video: bool = True
+    transcribe: bool = True
+    describe: bool = True
+    include_base64: bool = False
+
+class FullProcessRequest(BaseModel):
+    url: HttpUrl
+
+class TranscriptOnlyRequest(BaseModel):
+    url: HttpUrl
+
+class QdrantOnlyRequest(BaseModel):
+    url: HttpUrl
+
+class CarouselRequest(BaseModel):
+    url: HttpUrl
+    include_base64: bool = False
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Gilgamesh Media Processing Service",
+        "version": "2.2.2",
+        "features": [
+            "Instagram carousel support",
+            "Smart AI credit management",
+            "Enhanced video context analysis",
+            "Graceful audio handling",
+            "Multi-video processing"
+        ],
+        "endpoints": {
+            "process": {
+                "/process/simple": "Flexible processing with all options",
+                "/process/full": "Complete processing (save, transcribe, describe)",
+                "/process/transcript-only": "Raw transcript extraction only",
+                "/process/qdrant-only": "Vector database storage only",
+                "/process/carousel": "Get all videos from carousel URL"
+            },
+            "retrieval": {
+                "/video/{video_id}": "Get specific video by ID",
+                "/carousel/{url}": "Get all videos from carousel URL",
+                "/search": "Search videos by content",
+                "/videos": "List recent videos"
+            }
+        }
+    }
+
+@app.post("/process/simple")
+async def process_simple(request: SimpleProcessRequest):
+    """
+    Flexible video processing with all options.
+    Supports Instagram carousels - processes all videos in carousel.
+    """
+    async with semaphore:
+        try:
+            url = str(request.url)
+            if not is_valid_url(url):
+                raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+            result = await process_video_unified_simple(
+                url=url,
+                save_video=request.save_video,
+                transcribe=request.transcribe,
+                describe=request.describe,
+                include_base64=request.include_base64
+            )
+            
+            if result["success"]:
+                return result
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/process/full")
+async def process_full(request: FullProcessRequest):
+    """
+    Complete processing: Download, save, transcribe, describe, save to PostgreSQL.
+    Supports Instagram carousels - processes all videos in carousel.
+    """
+    async with semaphore:
+        try:
+            url = str(request.url)
+            if not is_valid_url(url):
+                raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+            result = await process_video_unified_simple(
+                url=url,
+                save_video=True,
+                transcribe=True,
+                describe=True,
+                include_base64=False
+            )
+            
+            if result["success"]:
+                return result
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/process/transcript-only")
+async def process_transcript_only(request: TranscriptOnlyRequest):
+    """
+    Raw transcript extraction only - no database storage.
+    Supports Instagram carousels - processes all videos in carousel.
+    """
+    async with semaphore:
+        try:
+            url = str(request.url)
+            if not is_valid_url(url):
+                raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+            result = await process_video_unified_simple(
+                url=url,
+                save_video=False,
+                transcribe=True,
+                describe=False,
+                include_base64=False
+            )
+            
+            if result["success"]:
+                # Extract only transcript data for clean response
+                transcript_data = []
+                for video in result.get("videos", []):
+                    video_transcript = video.get("results", {}).get("transcript_data")
+                    if video_transcript:
+                        transcript_data.append({
+                            "carousel_index": video.get("carousel_index", 0),
+                            "transcript": video_transcript
+                        })
+                
+                return {
+                    "success": True,
+                    "url": url,
+                    "carousel_info": result.get("carousel_info", {}),
+                    "transcript_data": transcript_data
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/process/qdrant-only")
+async def process_qdrant_only(request: QdrantOnlyRequest):
+    """
+    Vector database storage only - transcribe and save to Qdrant without video storage.
+    Processes videos, generates transcripts and descriptions, but only stores to Qdrant.
+    """
+    async with semaphore:
+        try:
+            url = str(request.url)
+            if not is_valid_url(url):
+                raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+            # Import the full unified processor
+            from app.simple_unified_processor import process_video_unified_full
+            
+            result = await process_video_unified_full(
+                url=url,
+                save_video=False,  # Don't save video base64
+                transcribe=True,   # Generate transcript for embeddings
+                describe=True,     # Generate descriptions for embeddings
+                save_to_postgres=False,  # Don't save to PostgreSQL
+                save_to_qdrant=True,     # Only save to Qdrant
+                include_base64=False
+            )
+            
+            if result["success"]:
+                return result
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/process/carousel")
+async def get_carousel(request: CarouselRequest):
+    """
+    Get all videos from a carousel URL.
+    Retrieves existing processed videos from database.
+    """
+    try:
+        url = str(request.url)
+        if not is_valid_url(url):
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+        
+        result = await get_carousel_videos(url, request.include_base64)
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result.get("error", "No videos found"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get carousel: {str(e)}")
+
+# Legacy endpoint for backward compatibility
+@app.post("/process/unified")
+async def process_unified(request: UnifiedProcessRequest):
+    """
+    Legacy unified processing endpoint (backward compatibility).
+    Supports Instagram carousels - processes all videos in carousel.
+    Now with full PostgreSQL and Qdrant support!
+    """
+    async with semaphore:
+        try:
+            url = str(request.url)
+            if not is_valid_url(url):
+                raise HTTPException(status_code=400, detail="Invalid URL format")
+            
+            # Map legacy parameters to new system
+            save_video = request.save
+            transcribe = request.transcribe is not None
+            describe = request.describe
+            
+            # Import the full unified processor
+            from app.simple_unified_processor import process_video_unified_full
+            
+            result = await process_video_unified_full(
+                url=url,
+                save_video=save_video,
+                transcribe=transcribe,
+                describe=describe,
+                save_to_postgres=request.save_to_postgres,
+                save_to_qdrant=request.save_to_qdrant,
+                include_base64=False
+            )
+            
+            if result["success"]:
+                return result
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error", "Processing failed"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.get("/video/{video_id}")
+async def get_video(video_id: str, include_base64: bool = False):
+    """Get video data by ID."""
+    try:
+        from app.simple_unified_processor import get_video_simple
+        result = await get_video_simple(video_id, include_base64)
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result.get("error", "Video not found"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get video: {str(e)}")
+
+@app.get("/carousel")
+async def get_carousel_by_url(url: str, include_base64: bool = False):
+    """Get all videos from a carousel by URL (query parameter)."""
+    try:
+        if not is_valid_url(url):
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+        
+        result = await get_carousel_videos(url, include_base64)
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result.get("error", "No videos found"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get carousel: {str(e)}")
+
+@app.get("/search")
+async def search_videos(q: str, limit: int = 10):
+    """Search videos by content."""
+    try:
+        from app.simple_unified_processor import search_videos_simple
+        result = await search_videos_simple(q, limit)
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Search failed"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@app.get("/videos")
+async def list_videos(limit: int = 20):
+    """List recent videos."""
+    try:
+        from app.simple_unified_processor import list_videos_simple
+        result = await list_videos_simple(limit)
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to list videos"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list videos: {str(e)}")
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "Gilgamesh Media Processing Service"}
-
-@app.post("/process")
-async def process_handler(request: URLRequest, background_tasks: BackgroundTasks) -> Dict:
-    """
-    Process a single URL and return the result.
-    Optionally clean up temporary files after processing.
-    """
-    if not is_valid_url(str(request.url)):
-        raise HTTPException(status_code=400, detail="Unsupported URL")
-        
-    try:
-        # Acquire semaphore with timeout
-        try:
-            await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=429, detail=f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later.")
-        try:
-            result = await process_single_url(str(request.url), request.threshold, request.encode_base64)
-            
-            if request.cleanup_temp:
-                background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
-            
-            return {"status": "success", "result": result}
-        finally:
-            semaphore.release()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/process/batch")
-async def process_batch_handler(request: URLBatchRequest, background_tasks: BackgroundTasks) -> Dict:
-    """
-    Process multiple URLs concurrently and return the results.
-    Optionally clean up temporary files after processing.
-    """
-    results = []
-    errors = []
-    
-    # Process URLs concurrently
-    async def process_url(url: str) -> Dict:
-        try:
-            try:
-                await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
-            except asyncio.TimeoutError:
-                return {"status": "error", "url": url, "detail": f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later."}
-            try:
-                if not is_valid_url(url):
-                    return {"status": "error", "url": url, "detail": "Unsupported URL"}
-                
-                result = await process_single_url(url, request.threshold, request.encode_base64)
-                
-                if request.cleanup_temp:
-                    background_tasks.add_task(cleanup_temp_folder, result['temp_dir'])
-                
-                return {"status": "success", "url": url, "result": result}
-            finally:
-                semaphore.release()
-        except Exception as e:
-            return {"status": "error", "url": url, "detail": str(e)}
-    
-    # Process all URLs concurrently
-    tasks = [process_url(str(url)) for url in request.urls]
-    responses = await asyncio.gather(*tasks)
-    
-    # Split responses into results and errors
-    for response in responses:
-        if response["status"] == "success":
-            results.append(response)
-        else:
-            errors.append(response)
-    
     return {
-        "status": "success",
-        "results": results,
-        "errors": errors
+        "status": "healthy",
+        "version": "2.2.2",
+        "features": {
+            "carousel_support": True,
+            "ai_credit_management": True,
+            "graceful_audio_handling": True,
+            "enhanced_video_context": True
+        }
     }
 
-@app.post("/cleanup")
-async def cleanup_handler(clear_cache_data: bool = False) -> Dict:
-    """
-    Clean up temporary files and optionally clear the cache.
-    """
-    try:
-        # Clean the main temp directory
-        temp_dir = os.path.join(os.path.dirname(__file__), 'temp')
-        await asyncio.to_thread(cleanup_temp_folder, temp_dir)
-        
-        if clear_cache_data:
-            await asyncio.to_thread(cache.clear)
-        return {"status": "success", "message": "Cleanup completed"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/cache/stats")
-async def cache_stats_handler() -> Dict:
-    """
-    Get cache statistics.
-    """
-    try:
-        stats = await asyncio.to_thread(cache.get_stats)
-        return {"status": "success", "stats": stats}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/cache/clear")
-async def clear_cache_handler() -> Dict:
-    """
-    Clear the cache.
-    """
-    try:
-        await asyncio.to_thread(cache.clear)
-        return {"status": "success", "message": "Cache cleared"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/download")
-def download_media_and_metadata(url: str):
-    try:
-        result = download_media_and_metadata(url)
-        return {"status": "success", "result": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/stitch")
-def stitch_handler(request: StitchRequest):
-    try:
-        # Stitch the scenes and get base64 output
-        base64_output = stitch_scenes_to_base64(request.scenes)
-        
-        return {
-            "status": "success",
-            "video": base64_output,
-            "message": "Video successfully stitched"
-        }
-    except Exception as e:
-        import traceback
-        print("Error in stitch_handler:")
-        print("Error details:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/process/unified")
-async def unified_process_handler(request: UnifiedProcessRequest) -> Dict:
-    """
-    Unified processing endpoint with save/transcribe/describe options.
-    
-    Args:
-        request: Unified processing request with flexible options
-        
-    Returns:
-        Dict with processing results based on requested options
-    """
-    try:
-        # Acquire semaphore with timeout
-        try:
-            await asyncio.wait_for(semaphore.acquire(), timeout=REQUEST_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=429, detail=f"Too many concurrent requests (>{MAX_CONCURRENT_REQUESTS}). Please try again later.")
-        
-        try:
-            # Convert request to ProcessingOptions
-            options = ProcessingOptions(
-                save=request.save,
-                transcribe=request.transcribe,
-                describe=request.describe,
-                save_to_postgres=request.save_to_postgres,
-                save_to_qdrant=request.save_to_qdrant
-            )
-            
-            # Process the URL
-            result = await process_url_unified(str(request.url), options)
-            
-            return {"status": "success", "result": result}
-            
-        finally:
-            semaphore.release()
-            
-    except Exception as e:
-        import traceback
-        print("Error in unified_process_handler:")
-        print("Error details:", str(e))
-        print("Traceback:")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8500, reload=True)
+    port = int(os.getenv("PORT", 8500))
+    uvicorn.run(app, host="0.0.0.0", port=port)
