@@ -16,7 +16,8 @@ A FastAPI-based service that processes social media content (Instagram posts, re
   - **Smart credit management** per video
 
 - **AI-Powered Content Processing**
-  - GPT-4 Vision scene analysis with transcript context
+  - **Dual AI Support**: Choose between OpenAI GPT-4 Vision or Google Gemini 2.0 Flash
+  - Enhanced prompts with step-by-step instructions, benefits, and safety considerations
   - Audio transcription with timestamping
   - Smart AI credit management (avoids duplicate processing)
   - Enhanced video context for better scene descriptions
@@ -38,7 +39,9 @@ A FastAPI-based service that processes social media content (Instagram posts, re
 - Python 3.11+
 - FFmpeg (for video processing)
 - PostgreSQL database
-- OpenAI API key (for GPT-4 Vision)
+- **AI Provider**: Choose one or both:
+  - OpenAI API key (for GPT-4 Vision)
+  - Google Gemini API key (for Gemini 2.0 Flash)
 
 ## Installation
 
@@ -75,14 +78,56 @@ sudo apt-get install ffmpeg
 cp .env.example .env
 
 # Configure your credentials
-OPENAI_API_KEY=your_openai_api_key
 POSTGRES_URL=postgresql://user:password@localhost:5432/database
+
+# AI Provider Configuration (choose one or both)
+AI_PROVIDER=openai  # or "gemini" for Google Gemini
+OPENAI_API_KEY=your_openai_api_key      # for OpenAI GPT-4 Vision
+GEMINI_API_KEY=your_gemini_api_key      # for Google Gemini 2.0 Flash
 ```
 
 6. Set up the database:
 ```bash
 python setup_simple_db.py
 ```
+
+## AI Provider Configuration
+
+### Choose Your AI Provider
+
+The service supports two AI providers for scene analysis:
+
+#### **OpenAI GPT-4 Vision (Default)**
+```bash
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key
+```
+- **Best for**: Common exercise names, broader context understanding
+- **Output style**: "The exercise being performed is a dynamic stretch known as the World's Greatest Stretch"
+- **Tags**: General fitness terminology
+
+#### **Google Gemini 2.0 Flash Experimental**
+```bash
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+```
+- **Best for**: Technical terminology, detailed biomechanical descriptions
+- **Output style**: "Dynamic hip flexor stretch with thoracic rotation, sometimes referred to as an open book lunge"
+- **Tags**: Technical movement patterns and muscle groups
+- **Advantage**: Typically more cost-effective than GPT-4 Vision
+
+### Enhanced Prompts
+
+Both providers use enhanced prompts that include:
+- **Detailed descriptions** with step-by-step instructions
+- **Exercise benefits** and practical applications
+- **Prerequisites** and safety considerations
+- **Comprehensive tags** covering exercise type, muscle groups, and movement patterns
+
+### Smart Provider Selection
+- **Automatic fallback**: Falls back to OpenAI if Gemini library not installed
+- **Same API**: No changes to existing endpoints - just set environment variable
+- **Credit management**: Existing data reuse works with both providers
 
 ## Core Use Cases
 

@@ -17,18 +17,44 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Initialize OpenAI client (will be set when needed)
-client = None
+# Initialize clients (will be set when needed)
+openai_client = None
+gemini_client = None
+
+# Check which AI provider to use
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()  # Default to OpenAI
+print(f"🤖 AI Provider: {AI_PROVIDER.upper()}")
+
+# Import Gemini if needed
+if AI_PROVIDER == "gemini":
+    try:
+        import google.generativeai as genai
+        print("✅ Google Generative AI imported successfully")
+    except ImportError:
+        print("❌ Google Generative AI not installed. Install with: pip install google-generativeai")
+        AI_PROVIDER = "openai"  # Fall back to OpenAI
 
 def get_openai_client():
     """Get OpenAI client, initializing if needed."""
-    global client
-    if client is None:
+    global openai_client
+    if openai_client is None:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-        client = AsyncOpenAI(api_key=api_key)
-    return client
+        openai_client = AsyncOpenAI(api_key=api_key)
+    return openai_client
+
+def get_gemini_client():
+    """Get Gemini client, initializing if needed."""
+    global gemini_client
+    if gemini_client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("Gemini API key not found. Set GEMINI_API_KEY environment variable.")
+        genai.configure(api_key=api_key)
+        gemini_client = genai.GenerativeModel('gemini-2.5-flash-lite-preview-06-17')
+        print("✅ Gemini 2.0 Flash Experimental client initialized")
+    return gemini_client
 
 async def encode_image_to_base64(image_path: str) -> str:
     """Convert image file to base64 string for GPT-4 Vision."""
@@ -157,6 +183,192 @@ def _filter_ai_prompts(text: str) -> str:
     
     return result.strip()
 
+async def analyze_scene_with_gemini(extreme_frames: List[Dict], scene_index: int, 
+                                   start_time: float, end_time: float,
+                                   transcript_data: Optional[List[Dict]] = None,
+                                   video_context: Optional[str] = None) -> Dict:
+    """
+    Analyze a scene's extreme frames using Gemini 2.0 Flash with optional transcript and video context.
+    
+    Args:
+        extreme_frames: List of extreme frame data with frame_path, frame_type, etc.
+        scene_index: Scene number for reference
+        start_time: Scene start time in seconds
+        end_time: Scene end time in seconds
+        transcript_data: Optional transcript segments for context
+        video_context: Optional video-level context from previous scene analysis
+        
+    Returns:
+        Dict with AI analysis: description, tags, and scene metadata
+    """
+    
+    # Filter to only the key extreme frames (start, valley, peak, end)
+    key_frames = [f for f in extreme_frames if f['frame_type'] in ['start', 'valley', 'peak', 'end']]
+    
+    if not key_frames:
+        return {
+            "scene_index": scene_index,
+            "start_time": start_time,
+            "end_time": end_time,
+            "description": "No key frames available for analysis",
+            "tags": [],
+            "analysis_success": False,
+            "has_transcript": bool(transcript_data),
+            "scene_transcript": None
+        }
+    
+    # Extract relevant transcript for this scene
+    scene_transcript = ""
+    if transcript_data:
+        scene_transcript = find_relevant_transcript_segments(transcript_data, start_time, end_time)
+    
+    transcript_context = f" (transcript available)" if scene_transcript else " (no transcript)"
+    print(f"🤖 Analyzing scene {scene_index + 1} with {len(key_frames)} key frames using Gemini{transcript_context}...")
+    
+    try:
+        # Get Gemini client
+        model = get_gemini_client()
+        
+        # Prepare images for Gemini
+        image_parts = []
+        for frame in key_frames:
+            try:
+                # Read image file
+                async with aiofiles.open(frame['frame_path'], "rb") as image_file:
+                    image_data = await image_file.read()
+                    image_parts.append({
+                        "mime_type": "image/jpeg",
+                        "data": image_data
+                    })
+            except Exception as e:
+                print(f"Error reading image {frame['frame_path']}: {e}")
+                continue
+        
+        if not image_parts:
+            return {
+                "scene_index": scene_index,
+                "start_time": start_time,
+                "end_time": end_time,
+                "description": "No valid images available for analysis",
+                "tags": [],
+                "analysis_success": False,
+                "has_transcript": bool(scene_transcript),
+                "scene_transcript": scene_transcript if scene_transcript else None
+            }
+        
+        # Build context for the prompt
+        context_parts = []
+        if scene_transcript:
+            context_parts.append(f"TRANSCRIPT: {scene_transcript}")
+        if video_context:
+            context_parts.append(f"VIDEO CONTEXT: {video_context}")
+        
+        context_str = " | ".join(context_parts)
+        context_prompt = f" Additional context: {context_str}" if context_str else ""
+        
+        # Create the prompt
+        prompt = f"""Analyze these {len(image_parts)} key frames from a video scene (timestamps: {start_time:.1f}s to {end_time:.1f}s).{context_prompt}
+
+Please provide:
+1. A detailed description of the movement/exercise being performed, including:
+   - Step-by-step instructions on how to perform the action
+   - The benefits of the exercise and its usefulness
+   - Any prerequisites or safety considerations to keep in mind
+2. 3-5 relevant tags that describe the exercise, such as:
+   - Exercise type (e.g., strength, cardio, flexibility)
+   - Target muscle groups involved (e.g., arms, legs, core)
+   - Movement patterns (e.g., push, pull, squat)
+
+Respond in JSON format:
+{{
+    "description": "detailed description of the movement/exercise",
+    "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
+}}"""
+        
+        # Make the API call
+        response = await asyncio.to_thread(
+            model.generate_content,
+            [prompt] + image_parts
+        )
+        
+        # Parse the response
+        response_text = response.text.strip()
+        
+        # Try to extract JSON from the response
+        try:
+            # Look for JSON in the response
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            
+            if json_start != -1 and json_end != -1:
+                json_str = response_text[json_start:json_end]
+                analysis = json.loads(json_str)
+                
+                description = analysis.get('description', '').strip()
+                tags = analysis.get('tags', [])
+                
+                # Ensure tags is a list
+                if isinstance(tags, str):
+                    tags = [tags]
+                elif not isinstance(tags, list):
+                    tags = []
+                
+                # Clean up tags
+                tags = [tag.strip().lower() for tag in tags if tag and isinstance(tag, str)]
+                tags = [tag for tag in tags if len(tag) > 0]  # Remove empty tags
+                
+                return {
+                    "scene_index": scene_index,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "description": description,
+                    "tags": tags,
+                    "analysis_success": True,
+                    "has_transcript": bool(scene_transcript),
+                    "has_video_context": bool(video_context),
+                    "scene_transcript": scene_transcript if scene_transcript else None
+                }
+            else:
+                # Fallback if no JSON found
+                return {
+                    "scene_index": scene_index,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "description": response_text,
+                    "tags": [],
+                    "analysis_success": True,
+                    "has_transcript": bool(scene_transcript),
+                    "has_video_context": bool(video_context),
+                    "scene_transcript": scene_transcript if scene_transcript else None
+                }
+                
+        except json.JSONDecodeError:
+            # Fallback to raw response if JSON parsing fails
+            return {
+                "scene_index": scene_index,
+                "start_time": start_time,
+                "end_time": end_time,
+                "description": response_text,
+                "tags": [],
+                "analysis_success": True,
+                "has_transcript": bool(scene_transcript),
+                "has_video_context": bool(video_context),
+                "scene_transcript": scene_transcript if scene_transcript else None
+            }
+            
+    except Exception as e:
+        print(f"Error in Gemini analysis for scene {scene_index}: {e}")
+        return {
+            "scene_index": scene_index,
+            "start_time": start_time,
+            "end_time": end_time,
+            "description": f"Analysis failed: {str(e)}",
+            "tags": [],
+            "analysis_success": False,
+            "has_transcript": bool(scene_transcript) if transcript_data else False,
+            "scene_transcript": scene_transcript if scene_transcript else None
+        }
+
 async def analyze_scene_with_gpt4_vision(extreme_frames: List[Dict], scene_index: int, 
                                        start_time: float, end_time: float,
                                        transcript_data: Optional[List[Dict]] = None,
@@ -255,8 +467,14 @@ Use this broader context to understand how this scene fits into the overall vide
 
 Please analyze what exercise or movement is being performed and provide:
 
-1. A detailed description (2-3 sentences) of the movement/exercise being performed
-2. Exactly 5 relevant tags (exercise type, muscle groups, movement patterns, etc.)
+1. A detailed description of the movement/exercise being performed, including:
+   - Step-by-step instructions on how to perform the action
+   - The benefits of the exercise and its usefulness
+   - Any prerequisites or safety considerations to keep in mind
+2. 3-5 relevant tags that describe the exercise, such as:
+   - Exercise type (e.g., strength, cardio, flexibility)
+   - Target muscle groups involved (e.g., arms, legs, core)
+   - Movement patterns (e.g., push, pull, squat)
 
 Respond in this exact JSON format:
 {
@@ -381,6 +599,36 @@ Respond in this exact JSON format:
             "scene_transcript": scene_transcript if scene_transcript else None
         }
 
+async def analyze_scene_with_ai(extreme_frames: List[Dict], scene_index: int, 
+                               start_time: float, end_time: float,
+                               transcript_data: Optional[List[Dict]] = None,
+                               video_context: Optional[str] = None) -> Dict:
+    """
+    Analyze a scene using the configured AI provider (OpenAI or Gemini).
+    
+    Args:
+        extreme_frames: List of extreme frame data with frame_path, frame_type, etc.
+        scene_index: Scene number for reference
+        start_time: Scene start time in seconds
+        end_time: Scene end time in seconds
+        transcript_data: Optional transcript segments for context
+        video_context: Optional video-level context from previous scene analysis
+        
+    Returns:
+        Dict with AI analysis: description, tags, and scene metadata
+    """
+    
+    if AI_PROVIDER == "gemini":
+        return await analyze_scene_with_gemini(
+            extreme_frames, scene_index, start_time, end_time, 
+            transcript_data, video_context
+        )
+    else:
+        return await analyze_scene_with_gpt4_vision(
+            extreme_frames, scene_index, start_time, end_time, 
+            transcript_data, video_context
+        )
+
 async def analyze_all_scenes_with_ai(scenes_data: List[Dict], transcript_data: Optional[List[Dict]] = None, 
                                    existing_scenes: Optional[List[Dict]] = None) -> List[Dict]:
     """
@@ -412,7 +660,7 @@ async def analyze_all_scenes_with_ai(scenes_data: List[Dict], transcript_data: O
     
     async def analyze_single_scene(scene_data: Dict, index: int) -> Dict:
         async with semaphore:
-            analysis = await analyze_scene_with_gpt4_vision(
+            analysis = await analyze_scene_with_ai(
                 scene_data['extreme_frames'],
                 index,
                 scene_data['start_time'],

@@ -1,5 +1,101 @@
 # CHANGELOG
 
+## [2.2.4] - 2024-12-23 - Gemini 2.0 Flash Integration & AI Provider Choice
+
+### 🤖 **NEW: Gemini 2.0 Flash Integration**
+
+**Added Google Gemini as AI Provider Alternative**: You can now choose between OpenAI GPT-4 Vision and Google Gemini 2.0 Flash Experimental for AI scene analysis.
+
+#### **Features**
+- **Dual AI Support**: Choose between OpenAI or Gemini via environment variable
+- **Gemini 2.0 Flash Experimental**: Latest Google model with competitive performance
+- **Cost Optimization**: Gemini Flash models are typically more cost-effective
+- **Same API**: No changes to existing endpoints - just set environment variable
+
+#### **Configuration**
+```bash
+# Use Gemini for AI analysis
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-gemini-api-key
+
+# Use OpenAI for AI analysis (default)
+AI_PROVIDER=openai
+OPENAI_API_KEY=your-openai-api-key
+```
+
+#### **Performance Comparison**
+**Gemini 2.0 Flash Output:**
+```json
+{
+  "description": "The exercise being performed is a dynamic hip flexor stretch with thoracic rotation, sometimes referred to as an open book lunge. Starting in a low lunge position...",
+  "tags": ["hip flexor stretch", "thoracic rotation", "dynamic stretch", "mobility", "lunge"]
+}
+```
+
+**OpenAI GPT-4 Vision Output:**
+```json
+{
+  "description": "The exercise being performed is a dynamic stretch known as the World's Greatest Stretch. It begins in a lunge position with one foot forward...",
+  "tags": ["dynamic stretch", "hip flexors", "full body", "mobility", "thoracic rotation"]
+}
+```
+
+#### **Key Differences**
+- **Gemini**: More technical terminology, detailed biomechanical descriptions
+- **OpenAI**: Common exercise names, broader context understanding
+- **Both**: Accurate exercise identification and relevant tags
+- **Gemini**: Potentially more cost-effective (Flash model vs GPT-4 Vision)
+
+#### **Smart Provider Selection**
+- **Automatic Fallback**: Falls back to OpenAI if Gemini library not installed
+- **Environment Detection**: Automatically detects and loads the configured provider
+- **Unified Interface**: Same function calls regardless of provider
+- **Error Handling**: Graceful handling of API errors and rate limits
+
+#### **Technical Implementation**
+- **`analyze_scene_with_gemini()`**: New function for Gemini-specific processing
+- **`analyze_scene_with_ai()`**: Unified function that routes to the configured provider
+- **Backward Compatibility**: Existing field names and response formats maintained
+- **Image Processing**: Optimized for Gemini's multimodal input requirements
+
+### 🔧 **Dependencies Updated**
+- **Added**: `google-generativeai>=0.3.0` for Gemini support
+- **Compatible**: Works alongside existing OpenAI dependencies
+- **Optional**: Gemini library only loaded when `AI_PROVIDER=gemini`
+
+### 📚 **Documentation Updated**
+- **README.md**: Added comprehensive AI provider configuration section
+- **Installation Guide**: Updated with dual AI provider setup instructions
+- **Feature Overview**: Added enhanced prompts and provider comparison
+- **Environment Variables**: Added Gemini API key configuration
+
+### 📊 **Usage Examples**
+
+#### **Test Gemini Integration**
+```python
+import os
+os.environ["AI_PROVIDER"] = "gemini"
+result = await process_video_unified_simple(url="...", describe=True)
+```
+
+#### **API Usage**
+```bash
+# Set environment and process video
+AI_PROVIDER=gemini python -m app.main
+
+# Then use any existing endpoint
+curl -X POST "http://localhost:8000/process/simple" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.instagram.com/p/example/", "describe": true}'
+```
+
+#### **Smart Credit Management**
+- ✅ **Existing Data Reuse**: Uses cached descriptions when available (saves AI credits)
+- ✅ **Provider Independence**: Can switch providers without reprocessing existing videos
+- ✅ **Intelligent Processing**: Only runs AI analysis when new descriptions needed
+
+---
+
 ## [2.2.3] - 2024-12-23 - Qdrant Integration Fix & Smart AI Credit Management
 
 ### 🔍 **MAJOR FIX: Qdrant Integration Now Working**

@@ -103,8 +103,6 @@ GROUP BY id, url, carousel_index, tags, created_at;
 -- GRANT ALL PRIVILEGES ON simple_videos TO your_app_user;
 -- GRANT USAGE ON SCHEMA public TO your_app_user;
 
--- Display table info
-\d simple_videos;
 
 -- Show indexes
 SELECT schemaname, tablename, indexname, indexdef 
