@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgl1-mesa-dev \
-    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory inside the container
