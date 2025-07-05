@@ -283,23 +283,59 @@ async def process_video_unified_simple(
                 logger.info(f"🔍 Saving video {carousel_index} to Qdrant...")
                 
                 try:
-                    # Ensure collection exists
-                    collection_name = "video_transcripts"
-                    await db.connections.ensure_collection_exists(collection_name)
+                    # Ensure collections exist
+                    transcript_collection = "video_transcript_segments"
+                    scene_collection = "video_scene_descriptions"
+                    await db.connections.ensure_collection_exists(transcript_collection)
+                    await db.connections.ensure_collection_exists(scene_collection)
                     
-                    # Create text content for embedding
-                    text_content = []
+                    vectors_created = 0
                     
-                    # Add transcript content (current or existing)
+                    # Process transcript segments individually (current or existing)
                     transcript_for_embedding = transcript_data or (existing_video.get('transcript') if existing_video else None)
                     if transcript_for_embedding:
                         if isinstance(transcript_for_embedding, list):
-                            for segment in transcript_for_embedding:
-                                text_content.append(segment.get('text', ''))
-                        else:
-                            text_content.append(str(transcript_for_embedding))
+                            for segment_index, segment in enumerate(transcript_for_embedding):
+                                text = segment.get('text', '')
+                                if text:
+                                    # Generate embedding for this segment only
+                                    embedding = await db.connections.generate_embedding(text)
+                                    if embedding:
+                                        # Create vector ID for this segment
+                                        import uuid
+                                        vector_id = str(uuid.uuid4())
+                                        
+                                        # Prepare metadata for this transcript segment
+                                        segment_metadata = {
+                                            "video_id": video_id or f"temp_{carousel_index}",
+                                            "segment_index": segment_index,
+                                            "text": text,
+                                            "start": segment.get('start', 0),
+                                            "end": segment.get('end', 0),
+                                            "duration": segment.get('duration', 0),
+                                            "url": normalized_url,
+                                            "carousel_index": carousel_index,
+                                            "type": "transcript_segment",
+                                            "tags": [],  # Individual segments don't have tags
+                                            "created_at": str(datetime.now()),
+                                            "vectorized_at": str(datetime.now())
+                                        }
+                                        
+                                        # Store transcript segment vector
+                                        success = await db.connections.store_vector(
+                                            collection_name=transcript_collection,
+                                            vector_id=vector_id,
+                                            embedding=embedding,
+                                            metadata=segment_metadata
+                                        )
+                                        
+                                        if success:
+                                            vectors_created += 1
+                                            logger.debug(f"✅ Created transcript segment vector {segment_index} for video {carousel_index}")
+                                        else:
+                                            logger.warning(f"⚠️ Failed to store transcript segment {segment_index} for video {carousel_index}")
                     
-                    # Add scene descriptions (current or existing)
+                    # Process scene descriptions individually (current or existing)
                     scenes_for_embedding = scenes_data or (existing_video.get('descriptions') if existing_video else None)
                     if scenes_for_embedding:
                         # Handle case where descriptions might be stored as JSON string
@@ -310,77 +346,62 @@ async def process_video_unified_simple(
                             except:
                                 scenes_for_embedding = []
                         
-                        for scene in scenes_for_embedding:
+                        for scene_index, scene in enumerate(scenes_for_embedding):
                             # Try both field names for backward compatibility
                             desc = scene.get('ai_description', '') or scene.get('description', '')
                             if desc:
-                                text_content.append(desc)
+                                # Generate embedding for this scene only
+                                embedding = await db.connections.generate_embedding(desc)
+                                if embedding:
+                                    # Create vector ID for this scene
+                                    import uuid
+                                    vector_id = str(uuid.uuid4())
+                                    
+                                    # Prepare metadata for this scene description
+                                    scene_metadata = {
+                                        "video_id": video_id or f"temp_{carousel_index}",
+                                        "scene_index": scene_index,
+                                        "description": desc,
+                                        "start_time": scene.get('start_time', 0),
+                                        "end_time": scene.get('end_time', 0),
+                                        "duration": scene.get('duration', 0),
+                                        "frame_count": scene.get('frame_count', 0),
+                                        "url": normalized_url,
+                                        "carousel_index": carousel_index,
+                                        "type": "scene_description",
+                                        "tags": scene.get('ai_tags', []) or scene.get('tags', []),
+                                        "created_at": str(datetime.now()),
+                                        "vectorized_at": str(datetime.now())
+                                    }
+                                    
+                                    # Store scene description vector
+                                    success = await db.connections.store_vector(
+                                        collection_name=scene_collection,
+                                        vector_id=vector_id,
+                                        embedding=embedding,
+                                        metadata=scene_metadata
+                                    )
+                                    
+                                    if success:
+                                        vectors_created += 1
+                                        logger.debug(f"✅ Created scene description vector {scene_index} for video {carousel_index}")
+                                    else:
+                                        logger.warning(f"⚠️ Failed to store scene description {scene_index} for video {carousel_index}")
                     
-                    # Add tags
-                    all_tags = set()
-                    if scenes_for_embedding:
-                        # Ensure scenes_for_embedding is a list
-                        if isinstance(scenes_for_embedding, str):
-                            import json
+                    # Check if we created any vectors
+                    if vectors_created > 0:
+                        logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vectors_created} vectors created")
+                        qdrant_saved = True
+                        
+                        # Update PostgreSQL with vectorization info
+                        if video_id and db.connections and db.connections.pg_pool:
                             try:
-                                scenes_for_embedding = json.loads(scenes_for_embedding)
-                            except:
-                                scenes_for_embedding = []
-                        
-                        for scene in scenes_for_embedding:
-                            # Try both field names for backward compatibility
-                            scene_tags = scene.get("ai_tags", []) or scene.get("tags", [])
-                            if scene_tags:
-                                all_tags.update(scene_tags)
-                    
-                    # Always try to save to Qdrant even if no text content (for metadata)
-                    if text_content:
-                        # Combine all text for embedding
-                        combined_text = " ".join(text_content)
-                        
-                        # Generate embedding
-                        embedding = await db.connections.generate_embedding(combined_text)
-                        
-                        if embedding:
-                            # Prepare metadata for Qdrant
-                            qdrant_metadata = {
-                                "video_id": video_id or f"temp_{carousel_index}",
-                                "url": normalized_url,
-                                "carousel_index": carousel_index,
-                                "has_transcript": bool(transcript_data),
-                                "has_scenes": bool(scenes_data),
-                                "tags": list(all_tags),
-                                "text_content": combined_text[:1000],  # Truncate for storage
-                                "created_at": str(datetime.now())
-                            }
-                            
-                            # Store in Qdrant (use UUID for vector ID)
-                            import uuid
-                            vector_id = str(uuid.uuid4())
-                            success = await db.connections.store_vector(
-                                collection_name=collection_name,
-                                vector_id=vector_id,
-                                embedding=embedding,
-                                metadata=qdrant_metadata
-                            )
-                            
-                            if success:
-                                logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
-                                qdrant_saved = True
-                                
-                                # Update PostgreSQL with vectorization info
-                                if video_id and db.connections and db.connections.pg_pool:
-                                    try:
-                                        await db.update_vectorization_status(video_id, vector_id, "text-embedding-3-small")
-                                        logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
-                                    except Exception as e:
-                                        logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
-                            else:
-                                logger.warning(f"⚠️ Failed to save video {carousel_index} to Qdrant")
-                        else:
-                            logger.warning(f"⚠️ Failed to generate embedding for video {carousel_index}")
+                                await db.update_vectorization_status(video_id, f"{vectors_created}_vectors", "text-embedding-3-small")
+                                logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
                     else:
-                        logger.info(f"ℹ️ No text content for video {carousel_index} - skipping Qdrant storage")
+                        logger.info(f"ℹ️ No vectors created for video {carousel_index} - no valid content found")
                         
                 except Exception as e:
                     logger.error(f"❌ Qdrant save failed for video {carousel_index}: {e}")
@@ -757,23 +778,59 @@ async def process_video_unified_full(
                 logger.info(f"🔍 Saving video {carousel_index} to Qdrant...")
                 
                 try:
-                    # Ensure collection exists
-                    collection_name = "video_transcripts"
-                    await db.connections.ensure_collection_exists(collection_name)
+                    # Ensure collections exist
+                    transcript_collection = "video_transcript_segments"
+                    scene_collection = "video_scene_descriptions"
+                    await db.connections.ensure_collection_exists(transcript_collection)
+                    await db.connections.ensure_collection_exists(scene_collection)
                     
-                    # Create text content for embedding
-                    text_content = []
+                    vectors_created = 0
                     
-                    # Add transcript content (current or existing)
+                    # Process transcript segments individually (current or existing)
                     transcript_for_embedding = transcript_data or (existing_video.get('transcript') if existing_video else None)
                     if transcript_for_embedding:
                         if isinstance(transcript_for_embedding, list):
-                            for segment in transcript_for_embedding:
-                                text_content.append(segment.get('text', ''))
-                        else:
-                            text_content.append(str(transcript_for_embedding))
+                            for segment_index, segment in enumerate(transcript_for_embedding):
+                                text = segment.get('text', '')
+                                if text:
+                                    # Generate embedding for this segment only
+                                    embedding = await db.connections.generate_embedding(text)
+                                    if embedding:
+                                        # Create vector ID for this segment
+                                        import uuid
+                                        vector_id = str(uuid.uuid4())
+                                        
+                                        # Prepare metadata for this transcript segment
+                                        segment_metadata = {
+                                            "video_id": video_id or f"temp_{carousel_index}",
+                                            "segment_index": segment_index,
+                                            "text": text,
+                                            "start": segment.get('start', 0),
+                                            "end": segment.get('end', 0),
+                                            "duration": segment.get('duration', 0),
+                                            "url": normalized_url,
+                                            "carousel_index": carousel_index,
+                                            "type": "transcript_segment",
+                                            "tags": [],  # Individual segments don't have tags
+                                            "created_at": str(datetime.now()),
+                                            "vectorized_at": str(datetime.now())
+                                        }
+                                        
+                                        # Store transcript segment vector
+                                        success = await db.connections.store_vector(
+                                            collection_name=transcript_collection,
+                                            vector_id=vector_id,
+                                            embedding=embedding,
+                                            metadata=segment_metadata
+                                        )
+                                        
+                                        if success:
+                                            vectors_created += 1
+                                            logger.debug(f"✅ Created transcript segment vector {segment_index} for video {carousel_index}")
+                                        else:
+                                            logger.warning(f"⚠️ Failed to store transcript segment {segment_index} for video {carousel_index}")
                     
-                    # Add scene descriptions (current or existing)
+                    # Process scene descriptions individually (current or existing)
                     scenes_for_embedding = scenes_data or (existing_video.get('descriptions') if existing_video else None)
                     if scenes_for_embedding:
                         # Handle case where descriptions might be stored as JSON string
@@ -784,76 +841,62 @@ async def process_video_unified_full(
                             except:
                                 scenes_for_embedding = []
                         
-                        for scene in scenes_for_embedding:
+                        for scene_index, scene in enumerate(scenes_for_embedding):
                             # Try both field names for backward compatibility
                             desc = scene.get('ai_description', '') or scene.get('description', '')
                             if desc:
-                                text_content.append(desc)
+                                # Generate embedding for this scene only
+                                embedding = await db.connections.generate_embedding(desc)
+                                if embedding:
+                                    # Create vector ID for this scene
+                                    import uuid
+                                    vector_id = str(uuid.uuid4())
+                                    
+                                    # Prepare metadata for this scene description
+                                    scene_metadata = {
+                                        "video_id": video_id or f"temp_{carousel_index}",
+                                        "scene_index": scene_index,
+                                        "description": desc,
+                                        "start_time": scene.get('start_time', 0),
+                                        "end_time": scene.get('end_time', 0),
+                                        "duration": scene.get('duration', 0),
+                                        "frame_count": scene.get('frame_count', 0),
+                                        "url": normalized_url,
+                                        "carousel_index": carousel_index,
+                                        "type": "scene_description",
+                                        "tags": scene.get('ai_tags', []) or scene.get('tags', []),
+                                        "created_at": str(datetime.now()),
+                                        "vectorized_at": str(datetime.now())
+                                    }
+                                    
+                                    # Store scene description vector
+                                    success = await db.connections.store_vector(
+                                        collection_name=scene_collection,
+                                        vector_id=vector_id,
+                                        embedding=embedding,
+                                        metadata=scene_metadata
+                                    )
+                                    
+                                    if success:
+                                        vectors_created += 1
+                                        logger.debug(f"✅ Created scene description vector {scene_index} for video {carousel_index}")
+                                    else:
+                                        logger.warning(f"⚠️ Failed to store scene description {scene_index} for video {carousel_index}")
                     
-                    # Add tags
-                    all_tags = set()
-                    if scenes_for_embedding:
-                        # Ensure scenes_for_embedding is a list
-                        if isinstance(scenes_for_embedding, str):
-                            import json
+                    # Check if we created any vectors
+                    if vectors_created > 0:
+                        logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vectors_created} vectors created")
+                        qdrant_saved = True
+                        
+                        # Update PostgreSQL with vectorization info
+                        if video_id and db.connections and db.connections.pg_pool:
                             try:
-                                scenes_for_embedding = json.loads(scenes_for_embedding)
-                            except:
-                                scenes_for_embedding = []
-                        
-                        for scene in scenes_for_embedding:
-                            # Try both field names for backward compatibility
-                            scene_tags = scene.get("ai_tags", []) or scene.get("tags", [])
-                            if scene_tags:
-                                all_tags.update(scene_tags)
-                    
-                    if text_content:
-                        # Combine all text
-                        combined_text = " ".join(text_content)
-                        
-                        # Generate embedding
-                        embedding = await db.connections.generate_embedding(combined_text)
-                        
-                        if embedding:
-                            # Prepare metadata for Qdrant
-                            qdrant_metadata = {
-                                "video_id": video_id or f"temp_{carousel_index}",
-                                "url": normalized_url,
-                                "carousel_index": carousel_index,
-                                "has_transcript": bool(transcript_data),
-                                "has_scenes": bool(scenes_data),
-                                "tags": list(all_tags),
-                                "text_content": combined_text[:1000],  # Truncate for storage
-                                "created_at": str(datetime.now())
-                            }
-                            
-                            # Store in Qdrant (use UUID for vector ID)
-                            import uuid
-                            vector_id = str(uuid.uuid4())
-                            success = await db.connections.store_vector(
-                                collection_name=collection_name,
-                                vector_id=vector_id,
-                                embedding=embedding,
-                                metadata=qdrant_metadata
-                            )
-                            
-                            if success:
-                                logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
-                                qdrant_saved = True
-                                
-                                # Update PostgreSQL with vectorization info
-                                if video_id and db.connections and db.connections.pg_pool:
-                                    try:
-                                        await db.update_vectorization_status(video_id, vector_id, "text-embedding-3-small")
-                                        logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
-                                    except Exception as e:
-                                        logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
-                            else:
-                                logger.warning(f"⚠️ Failed to save video {carousel_index} to Qdrant")
-                        else:
-                            logger.warning(f"⚠️ Failed to generate embedding for video {carousel_index}")
+                                await db.update_vectorization_status(video_id, f"{vectors_created}_vectors", "text-embedding-3-small")
+                                logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
                     else:
-                        logger.info(f"ℹ️ No text content for video {carousel_index} - skipping Qdrant storage")
+                        logger.info(f"ℹ️ No vectors created for video {carousel_index} - no valid content found")
                         
                 except Exception as e:
                     logger.error(f"❌ Qdrant save failed for video {carousel_index}: {e}")

@@ -228,7 +228,7 @@ curl -X POST "http://localhost:8500/process/transcript-only" \
 **Perfect for:** Quick transcript extraction, content analysis, subtitle generation, **multi-video transcript compilation**.
 
 ### 3. Vector Database Storage (Qdrant)
-**Use Case:** Process transcript and store in vector database for semantic search without saving the video.
+**Use Case:** Process transcript and store in vector database for semantic search with **individual vector points** for precise, timestamp-based search.
 
 ```bash
 curl -X POST "http://localhost:8500/process/qdrant-only" \
@@ -236,7 +236,9 @@ curl -X POST "http://localhost:8500/process/qdrant-only" \
      -d '{"url": "https://www.instagram.com/p/YOUR_POST_ID/"}'
 ```
 
-**Perfect for:** Building searchable knowledge bases, semantic content discovery, **carousel content indexing**.
+**Revolutionary Approach:** Each transcript segment and scene description becomes its own vector point for granular search.
+
+**Perfect for:** Building searchable knowledge bases, semantic content discovery, **timestamp-precise search**, **carousel content indexing**.
 
 ## Instagram Carousel Support
 
@@ -774,6 +776,81 @@ curl -X POST "http://localhost:8500/process/simple" \
        "describe": false,
        "include_base64": false
      }'
+```
+
+## 🔍 Vector Search Structure
+
+### Individual Vector Points for Precise Search
+
+The system creates **individual vector points** for each transcript segment and scene description, enabling granular, timestamp-based search.
+
+#### Two Collections:
+- **`video_transcript_segments`** - Each transcript segment as individual vector
+- **`video_scene_descriptions`** - Each scene description as individual vector
+
+#### Transcript Segment Vector Example:
+```json
+{
+  "vector_id": "uuid-4",
+  "collection": "video_transcript_segments",
+  "embedding": [0.123, -0.456, ...],
+  "metadata": {
+    "video_id": "d63023c6-9062-4b2b-b9b1-78e489da0a4d",
+    "segment_index": 2,
+    "text": "Hello everyone, welcome to my cooking show",
+    "start": 5.2,
+    "end": 8.7,
+    "duration": 3.5,
+    "url": "https://www.instagram.com/p/...",
+    "carousel_index": 0,
+    "type": "transcript_segment",
+    "tags": [],
+    "created_at": "2024-12-23T...",
+    "vectorized_at": "2024-12-23T..."
+  }
+}
+```
+
+#### Scene Description Vector Example:
+```json
+{
+  "vector_id": "uuid-4",
+  "collection": "video_scene_descriptions", 
+  "embedding": [0.234, -0.567, ...],
+  "metadata": {
+    "video_id": "d63023c6-9062-4b2b-b9b1-78e489da0a4d",
+    "scene_index": 1,
+    "description": "A person in a modern kitchen chopping vegetables",
+    "start_time": 10.0,
+    "end_time": 15.5,
+    "duration": 5.5,
+    "frame_count": 165,
+    "url": "https://www.instagram.com/p/...",
+    "carousel_index": 0,
+    "type": "scene_description",
+    "tags": ["kitchen", "cooking", "vegetables"],
+    "created_at": "2024-12-23T...",
+    "vectorized_at": "2024-12-23T..."
+  }
+}
+```
+
+#### Benefits:
+- **Precise Search**: Find exact moments in videos, not just entire videos
+- **Timestamp Accuracy**: Each vector contains exact timing information
+- **Granular Retrieval**: Return specific segments instead of entire transcripts
+- **Better Relevance**: Semantic search matches specific content, not mixed content
+- **Scalable**: Each video can have dozens of searchable segments
+
+#### Vectorization Command:
+```bash
+# Vectorize existing videos that haven't been vectorized yet
+python vectorize_existing_videos.py [--limit N] [--dry-run] [--verbose]
+
+# Examples:
+python vectorize_existing_videos.py --dry-run --limit 5    # See what would be processed
+python vectorize_existing_videos.py --limit 10             # Process 10 videos
+python vectorize_existing_videos.py                        # Process all unvectorized videos
 ```
 
 ## Error Handling

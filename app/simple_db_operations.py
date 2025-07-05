@@ -391,13 +391,13 @@ class SimpleVideoDatabase:
             logger.error(f"❌ Failed to get video base64: {e}")
             return None
 
-    async def update_vectorization_status(self, video_id: str, vector_id: str, embedding_model: str = "text-embedding-3-small") -> bool:
+    async def update_vectorization_status(self, video_id: str, vector_info: str, embedding_model: str = "text-embedding-3-small") -> bool:
         """
         Update PostgreSQL with vectorization status after successful Qdrant storage.
         
         Args:
             video_id: Video UUID
-            vector_id: Qdrant vector UUID
+            vector_info: Vector information (e.g., "5_vectors" for count or single vector ID for backward compatibility)
             embedding_model: OpenAI model used for embeddings
             
         Returns:
@@ -418,10 +418,10 @@ class SimpleVideoDatabase:
                 WHERE id = $3;
                 """
                 
-                result = await conn.execute(update_query, vector_id, embedding_model, video_id)
+                result = await conn.execute(update_query, vector_info, embedding_model, video_id)
                 
                 if result == "UPDATE 1":
-                    logger.debug(f"✅ Updated vectorization status for video: {video_id}")
+                    logger.debug(f"✅ Updated vectorization status for video: {video_id} ({vector_info})")
                     return True
                 else:
                     logger.warning(f"⚠️ No rows updated for video: {video_id}")
