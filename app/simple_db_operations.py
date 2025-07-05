@@ -391,6 +391,49 @@ class SimpleVideoDatabase:
             logger.error(f"❌ Failed to get video base64: {e}")
             return None
 
+    async def update_vectorization_status(self, video_id: str, vector_id: str, embedding_model: str = "text-embedding-3-small") -> bool:
+        """
+        Update PostgreSQL with vectorization status after successful Qdrant storage.
+        
+        Args:
+            video_id: Video UUID
+            vector_id: Qdrant vector UUID
+            embedding_model: OpenAI model used for embeddings
+            
+        Returns:
+            True if successful, False if failed
+        """
+        if not await self._ensure_connection():
+            logger.error("❌ Database connection not available")
+            return False
+        
+        try:
+            conn = await self.connections.pg_pool.acquire()
+            try:
+                update_query = """
+                UPDATE simple_videos 
+                SET vectorized_at = NOW(), 
+                    vector_id = $1, 
+                    embedding_model = $2
+                WHERE id = $3;
+                """
+                
+                result = await conn.execute(update_query, vector_id, embedding_model, video_id)
+                
+                if result == "UPDATE 1":
+                    logger.debug(f"✅ Updated vectorization status for video: {video_id}")
+                    return True
+                else:
+                    logger.warning(f"⚠️ No rows updated for video: {video_id}")
+                    return False
+                    
+            finally:
+                await self.connections.pg_pool.release(conn)
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to update vectorization status: {e}")
+            return False
+
     async def update_video(self, video_id: str, 
                           video_path: Optional[str] = None,
                           transcript_data: Optional[List[Dict]] = None,

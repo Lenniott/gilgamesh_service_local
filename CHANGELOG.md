@@ -1,5 +1,72 @@
 # CHANGELOG
 
+## [2.2.9] - 2024-12-23 - Vectorization Tracking & PostgreSQL Updates
+
+### 🎯 **NEW: PostgreSQL Vectorization Tracking**
+
+**Added Vectorization Status Tracking**: PostgreSQL now tracks when videos have been vectorized to Qdrant with full metadata.
+
+#### **What's New:**
+- **`vectorized_at`**: Timestamp when video was vectorized to Qdrant
+- **`vector_id`**: Qdrant vector UUID for direct lookup
+- **`embedding_model`**: OpenAI model used for embeddings (defaults to 'text-embedding-3-small')
+- **Automatic updates**: PostgreSQL gets updated immediately after successful Qdrant storage
+
+#### **Database Schema Changes:**
+```sql
+-- New columns added to simple_videos table
+ALTER TABLE simple_videos 
+ADD COLUMN vectorized_at TIMESTAMP,
+ADD COLUMN vector_id TEXT,
+ADD COLUMN embedding_model TEXT DEFAULT 'text-embedding-3-small';
+
+-- Updated views include vectorization stats
+CREATE OR REPLACE VIEW video_summary AS
+SELECT 
+    COUNT(*) as total_videos,
+    COUNT(CASE WHEN vectorized_at IS NOT NULL THEN 1 END) as vectorized_count,
+    COUNT(CASE WHEN vectorized_at IS NULL THEN 1 END) as not_vectorized_count,
+    AVG(CASE WHEN vectorized_at IS NOT NULL THEN 1.0 ELSE 0.0 END) as vectorization_rate
+FROM simple_videos;
+```
+
+#### **Code Implementation:**
+```python
+# NEW: Database method to track vectorization
+async def update_vectorization_status(self, video_id: str, vector_id: str, embedding_model: str = "text-embedding-3-small") -> bool:
+    """Update PostgreSQL with vectorization status after successful Qdrant storage."""
+    
+# NEW: Automatic updates in processing
+if success:
+    logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
+    qdrant_saved = True
+    
+    # Update PostgreSQL with vectorization info
+    if video_id and db.connections and db.connections.pg_pool:
+        await db.update_vectorization_status(video_id, vector_id, "text-embedding-3-small")
+        logger.info(f"✅ Updated PostgreSQL with vectorization info")
+```
+
+#### **Benefits:**
+- **Data Integrity**: PostgreSQL and Qdrant status always in sync
+- **Debugging**: Easy to see which videos are vectorized
+- **Analytics**: Track vectorization rates and success
+- **Recovery**: Can identify and re-vectorize failed videos
+- **Audit Trail**: Full history of when vectorization occurred
+
+#### **Impact:**
+- **Both endpoints**: `/process/simple` and `/process/unified` now update PostgreSQL
+- **Automatic**: No API changes needed, happens transparently
+- **Backward compatible**: Existing videos show `NULL` until re-vectorized
+- **Performance**: Minimal overhead, only updates on successful Qdrant storage
+
+#### **Migration:**
+- **Run SQL migration**: Execute `add_vectorization_tracking.sql` to add new columns
+- **Existing videos**: Will show `vectorized_at: NULL` until reprocessed
+- **New videos**: Automatically get vectorization tracking
+
+---
+
 ## [2.2.8] - 2024-12-23 - Complete Database Control & OpenAI Embeddings
 
 ### 🎯 **PERFECT: Full Database Control with Consistent Embeddings**

@@ -277,7 +277,7 @@ async def process_video_unified_simple(
             else:
                 logger.warning(f"⚠️ PostgreSQL not available, skipping save for video {carousel_index}")
             
-            # Save to Qdrant (NEW: Added Qdrant support to simple processor)
+                                        # Save to Qdrant (NEW: Added Qdrant support to simple processor)
             qdrant_saved = False
             if save_to_qdrant and db.connections and db.connections.qdrant_client and db.connections.openai_client:
                 logger.info(f"🔍 Saving video {carousel_index} to Qdrant...")
@@ -367,6 +367,14 @@ async def process_video_unified_simple(
                             if success:
                                 logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
                                 qdrant_saved = True
+                                
+                                # Update PostgreSQL with vectorization info
+                                if video_id and db.connections and db.connections.pg_pool:
+                                    try:
+                                        await db.update_vectorization_status(video_id, vector_id, "text-embedding-3-small")
+                                        logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
+                                    except Exception as e:
+                                        logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
                             else:
                                 logger.warning(f"⚠️ Failed to save video {carousel_index} to Qdrant")
                         else:
@@ -832,6 +840,14 @@ async def process_video_unified_full(
                             if success:
                                 logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
                                 qdrant_saved = True
+                                
+                                # Update PostgreSQL with vectorization info
+                                if video_id and db.connections and db.connections.pg_pool:
+                                    try:
+                                        await db.update_vectorization_status(video_id, vector_id, "text-embedding-3-small")
+                                        logger.info(f"✅ Updated PostgreSQL with vectorization info for video {carousel_index}")
+                                    except Exception as e:
+                                        logger.warning(f"⚠️ Failed to update vectorization status in PostgreSQL: {e}")
                             else:
                                 logger.warning(f"⚠️ Failed to save video {carousel_index} to Qdrant")
                         else:
