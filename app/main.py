@@ -61,6 +61,11 @@ class CarouselRequest(BaseModel):
     url: HttpUrl
     include_base64: bool = False
 
+class VectorizeExistingRequest(BaseModel):
+    limit: Optional[int] = None
+    dry_run: bool = False
+    verbose: bool = False
+
 @app.get("/")
 async def root():
     return {
@@ -79,7 +84,8 @@ async def root():
                 "/process/full": "Complete processing (save, transcribe, describe)",
                 "/process/transcript-only": "Raw transcript extraction only",
                 "/process/qdrant-only": "Vector database storage only",
-                "/process/carousel": "Get all videos from carousel URL"
+                "/process/carousel": "Get all videos from carousel URL",
+                "/vectorize/existing": "Vectorize unvectorized videos in database"
             },
             "retrieval": {
                 "/video/{video_id}": "Get specific video by ID",
@@ -231,6 +237,82 @@ async def process_qdrant_only(request: QdrantOnlyRequest):
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@app.post("/vectorize/existing")
+async def vectorize_existing_videos(request: VectorizeExistingRequest):
+    """
+    Vectorize existing videos in the database that haven't been vectorized yet.
+    Creates individual vector points for each transcript segment and scene description.
+    """
+    async with semaphore:
+        try:
+            # Import the vectorization class
+            import sys
+            import os
+            
+            # Add the project root to Python path to import the script
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if project_root not in sys.path:
+                sys.path.append(project_root)
+            
+            from vectorize_existing_videos import VectorizeExistingVideos
+            
+            # Create vectorizer instance
+            vectorizer = VectorizeExistingVideos()
+            
+            try:
+                # Initialize database connections
+                await vectorizer.initialize()
+                
+                # Run vectorization with provided parameters
+                result = await vectorizer.vectorize_all_unvectorized(
+                    limit=request.limit,
+                    dry_run=request.dry_run
+                )
+                
+                # Enhanced response with detailed information
+                response = {
+                    "success": result["success"],
+                    "message": result["message"],
+                    "parameters": {
+                        "limit": request.limit,
+                        "dry_run": request.dry_run,
+                        "verbose": request.verbose
+                    },
+                    "results": {
+                        "total_videos": result.get("total_videos", 0),
+                        "processed": result.get("processed", 0),
+                        "successful": result.get("successful", 0),
+                        "failed": result.get("failed", 0)
+                    }
+                }
+                
+                # Add error details if present
+                if "error" in result:
+                    response["error"] = result["error"]
+                
+                # Add video details for dry run
+                if request.dry_run and "videos" in result:
+                    response["videos_to_process"] = [
+                        {
+                            "video_id": video["id"],
+                            "url": video["url"],
+                            "carousel_index": video.get("carousel_index", 0),
+                            "has_transcript": bool(video.get("transcript")),
+                            "has_descriptions": bool(video.get("descriptions")),
+                            "created_at": str(video["created_at"])
+                        }
+                        for video in result["videos"]
+                    ]
+                
+                return response
+                
+            finally:
+                # Always cleanup connections
+                await vectorizer.cleanup()
+                
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Vectorization failed: {str(e)}")
 
 @app.post("/process/carousel")
 async def get_carousel(request: CarouselRequest):
