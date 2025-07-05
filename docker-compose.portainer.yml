@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  gilgamesh-api:
+    build: .
+    container_name: gilgamesh-media-service
+    ports:
+      - "8500:8500"
+    environment:
+      # Database Configuration - Connect to existing Portainer PostgreSQL
+      - PG_DBNAME=${PG_DBNAME}
+      - PG_USER=${PG_USER}
+      - PG_PASSWORD=${PG_PASSWORD}
+      - PG_HOST=${PG_HOST}  # Your existing PostgreSQL container name/IP
+      - PG_PORT=${PG_PORT:-5432}
+      
+      # AI Provider Configuration
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      
+      # Qdrant Configuration - Connect to existing Portainer Qdrant
+      - QDRANT_URL=${QDRANT_URL}  # Your existing Qdrant URL
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+    volumes:
+      - ./temp:/app/temp
+      - ./cache:/app/cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Connect to your existing Portainer network
+    networks:
+      - portainer_network
+
+networks:
+  portainer_network:
+    external: true  # Use your existing Portainer network 

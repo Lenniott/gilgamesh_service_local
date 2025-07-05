@@ -1,5 +1,132 @@
 # CHANGELOG
 
+## [2.2.5] - 2024-12-23 - Production-Ready Docker Deployment
+
+### 🐳 **NEW: Complete Docker Deployment Stack**
+
+**Production-Ready Containerization**: Full Docker setup with optimized builds, multi-service orchestration, and automated deployment.
+
+#### **Docker Improvements**
+- **Python 3.11+ Base**: Updated from Python 3.9 to 3.11-slim for better performance
+- **Multi-Stage Optimization**: Optimized layer caching and build performance
+- **Security Hardening**: Non-root user, minimal attack surface
+- **Health Checks**: Built-in health monitoring for all services
+- **Dependency Optimization**: Organized and versioned requirements with security updates
+
+#### **Complete Stack Deployment**
+- **Docker Compose**: Full multi-service orchestration
+- **PostgreSQL 15**: Automated database setup with schema initialization
+- **Qdrant Vector DB**: Latest vector database with persistent storage
+- **Automated Deployment**: One-command deployment with health checks
+- **Volume Management**: Persistent data storage for all services
+
+#### **Portainer Integration**
+- **Portainer UI Deployment**: Step-by-step guide for Portainer deployment
+- **Existing Service Integration**: Connects to existing PostgreSQL and Qdrant containers
+- **Network Compatibility**: Works with existing `n8n_net` network
+- **Database Sharing**: Uses existing `n8ndb` database with separate table
+- **Custom Configuration**: Tailored environment variables for Portainer setup
+
+#### **Production Features**
+- **Health Monitoring**: HTTP health checks for all services
+- **Restart Policies**: Automatic service recovery
+- **Resource Optimization**: Efficient resource usage and cleanup
+- **Security**: Non-root containers and secure networking
+- **Logging**: Comprehensive logging and monitoring setup
+
+#### **Files Added/Updated**
+- **`Dockerfile`**: Complete rewrite with Python 3.11+ and security hardening
+- **`docker-compose.yml`**: Full stack orchestration with PostgreSQL + Qdrant
+- **`docker-compose.portainer.yml`**: Portainer-specific compose file for existing services
+- **`deploy.sh`**: Automated deployment script with health checks
+- **`portainer-deployment-guide.md`**: Complete Portainer UI deployment guide
+- **`requirements.txt`**: Organized dependencies with proper versioning
+- **`.dockerignore`**: Optimized build context exclusions
+- **`env.example`**: Sample environment configuration
+- **`portainer.env`**: Specific configuration for Portainer setup
+
+#### **Deployment Options**
+
+##### **Standalone Deployment**
+```bash
+# Quick deployment with new services
+./deploy.sh
+
+# Manual deployment
+docker-compose up -d
+```
+
+##### **Portainer UI Deployment**
+```bash
+# Build image in Portainer UI
+Image name: gilgamesh-media-service:latest
+
+# Container configuration
+Network: n8n_net
+Ports: 8500:8500
+Environment variables from portainer.env
+```
+
+#### **Environment Configuration**
+
+##### **Standalone Setup**
+```bash
+# Database
+PG_DBNAME=gilgamesh_media
+PG_USER=postgres
+PG_PASSWORD=your_secure_password
+
+# AI Provider (choose one)
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-your-openai-key
+GEMINI_API_KEY=your-gemini-key
+
+# Vector Database
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your-qdrant-key
+```
+
+##### **Portainer Integration**
+```bash
+# Existing PostgreSQL (n8ndb)
+PG_DBNAME=n8ndb
+PG_USER=n8n
+PG_PASSWORD=ohgodiconfessimamess
+PG_HOST=postgres
+
+# Existing Qdrant
+QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=findme-gagme-putme-inabunnyranch
+
+# AI Provider
+AI_PROVIDER=openai
+OPENAI_API_KEY=your-openai-key
+```
+
+#### **Database Setup**
+- **Standalone**: Automatic database creation with `create_simple_videos_table.sql`
+- **Portainer**: Manual table creation in existing `n8ndb` database
+- **Schema**: All tables created in `public` schema
+- **Isolation**: Gilgamesh data stored in separate `simple_videos` table
+
+#### **Service Endpoints**
+- **API**: http://localhost:8500
+- **Health**: http://localhost:8500/health
+- **Docs**: http://localhost:8500/docs
+- **PostgreSQL**: localhost:5432
+- **Qdrant**: http://localhost:6333
+
+#### **Production Benefits**
+- **One-Command Deployment**: Complete stack setup in minutes
+- **Auto-Recovery**: Services automatically restart on failure
+- **Health Monitoring**: Built-in health checks and monitoring
+- **Persistent Storage**: Data survives container restarts
+- **Scalability**: Easy to scale individual services
+- **Security**: Non-root containers and secure networking
+- **Portainer Compatible**: Works seamlessly with existing Portainer infrastructure
+
+---
+
 ## [2.2.4] - 2024-12-23 - Gemini 2.0 Flash Integration & AI Provider Choice
 
 ### 🤖 **NEW: Gemini 2.0 Flash Integration**
