@@ -84,7 +84,9 @@ async def root():
                 "/process/full": "Complete processing (save, transcribe, describe)",
                 "/process/transcript-only": "Raw transcript extraction only",
                 "/process/qdrant-only": "Vector database storage only",
-                "/process/carousel": "Get all videos from carousel URL",
+                "/process/carousel": "Get all videos from carousel URL"
+            },
+            "vectorization": {
                 "/vectorize/existing": "Vectorize unvectorized videos in database"
             },
             "retrieval": {

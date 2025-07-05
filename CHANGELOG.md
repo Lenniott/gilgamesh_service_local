@@ -12,7 +12,44 @@
 - **Granular Search**: Find exact moments in videos with timestamp precision
 - **Two New Collections**: `video_transcript_segments` and `video_scene_descriptions` for organized storage
 
-#### **New Vectorization Command:**
+#### **NEW: HTTP Vectorization Endpoint**
+- **`POST /vectorize/existing`**: Vectorize existing videos via HTTP API
+- **Parameters**: `limit`, `dry_run`, `verbose` for flexible control
+- **Response**: Detailed progress and results information
+- **Benefits**: No need for command-line access, integrates with existing API
+
+#### **HTTP Endpoint Examples:**
+```bash
+# Dry run to see what would be processed
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{"dry_run": true}'
+
+# Process 5 videos
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{"limit": 5}'
+
+# Process all unvectorized videos
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+```
+
+#### **Response Format:**
+```json
+{
+  "success": true,
+  "message": "Vectorization complete: 8/10 successful",
+  "parameters": {"limit": 10, "dry_run": false, "verbose": false},
+  "results": {
+    "total_videos": 10, "processed": 10,
+    "successful": 8, "failed": 2
+  }
+}
+```
+
+#### **Command Line Alternative:**
 ```bash
 # Vectorize existing videos that haven't been vectorized yet
 python vectorize_existing_videos.py [--limit N] [--dry-run] [--verbose]

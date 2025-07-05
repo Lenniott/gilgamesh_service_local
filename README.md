@@ -842,7 +842,30 @@ The system creates **individual vector points** for each transcript segment and 
 - **Better Relevance**: Semantic search matches specific content, not mixed content
 - **Scalable**: Each video can have dozens of searchable segments
 
-#### Vectorization Command:
+#### Vectorization Options:
+
+**HTTP Endpoint (Recommended):**
+```bash
+# Vectorize existing videos via API
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{"limit": 5, "dry_run": true}'
+
+# Examples:
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{"dry_run": true}'                                 # See what would be processed
+
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{"limit": 10}'                                     # Process 10 videos
+
+curl -X POST "http://localhost:8500/vectorize/existing" \
+     -H "Content-Type: application/json" \
+     -d '{}'                                                # Process all unvectorized videos
+```
+
+**Command Line (Alternative):**
 ```bash
 # Vectorize existing videos that haven't been vectorized yet
 python vectorize_existing_videos.py [--limit N] [--dry-run] [--verbose]
