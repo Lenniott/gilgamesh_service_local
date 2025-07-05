@@ -44,6 +44,8 @@ class SimpleProcessRequest(BaseModel):
     save_video: bool = True
     transcribe: bool = True
     describe: bool = True
+    save_to_postgres: bool = True
+    save_to_qdrant: bool = True
     include_base64: bool = False
 
 class FullProcessRequest(BaseModel):
@@ -105,6 +107,8 @@ async def process_simple(request: SimpleProcessRequest):
                 save_video=request.save_video,
                 transcribe=request.transcribe,
                 describe=request.describe,
+                save_to_postgres=request.save_to_postgres,
+                save_to_qdrant=request.save_to_qdrant,
                 include_base64=request.include_base64
             )
             

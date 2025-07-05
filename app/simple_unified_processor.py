@@ -45,6 +45,8 @@ async def process_video_unified_simple(
     save_video: bool = True,
     transcribe: bool = True,
     describe: bool = True,
+    save_to_postgres: bool = True,
+    save_to_qdrant: bool = True,
     include_base64: bool = False
 ) -> Dict[str, Any]:
     """
@@ -55,6 +57,8 @@ async def process_video_unified_simple(
         save_video: Whether to save video base64 to database
         transcribe: Whether to generate transcript
         describe: Whether to generate scene descriptions
+        save_to_postgres: Whether to save to PostgreSQL database
+        save_to_qdrant: Whether to save to Qdrant vector database
         include_base64: Whether to include base64 in response (warning: large!)
         
     Returns:
@@ -205,9 +209,9 @@ async def process_video_unified_simple(
                     else:
                         logger.warning(f"⚠️ Scene analysis failed for video {carousel_index}")
             
-            # Save to database
-            if (current_save_video or current_transcribe or current_describe) and db.connections and db.connections.pg_pool:
-                logger.info(f"💾 Saving video {carousel_index} to database...")
+            # Save to database (PostgreSQL)
+            if save_to_postgres and (current_save_video or current_transcribe or current_describe) and db.connections and db.connections.pg_pool:
+                logger.info(f"💾 Saving video {carousel_index} to PostgreSQL...")
                 
                 # Prepare metadata
                 metadata = {
@@ -268,8 +272,116 @@ async def process_video_unified_simple(
                 except Exception as e:
                     logger.error(f"❌ Database save failed for video {carousel_index}: {e}")
                     video_id = None
+            elif not save_to_postgres:
+                logger.info(f"⏭️ Skipping PostgreSQL save for video {carousel_index} (save_to_postgres=false)")
             else:
-                logger.warning(f"⚠️ Database not available, skipping save for video {carousel_index}")
+                logger.warning(f"⚠️ PostgreSQL not available, skipping save for video {carousel_index}")
+            
+            # Save to Qdrant (NEW: Added Qdrant support to simple processor)
+            qdrant_saved = False
+            if save_to_qdrant and db.connections and db.connections.qdrant_client and db.connections.openai_client:
+                logger.info(f"🔍 Saving video {carousel_index} to Qdrant...")
+                
+                try:
+                    # Ensure collection exists
+                    collection_name = "video_transcripts"
+                    await db.connections.ensure_collection_exists(collection_name)
+                    
+                    # Create text content for embedding
+                    text_content = []
+                    
+                    # Add transcript content (current or existing)
+                    transcript_for_embedding = transcript_data or (existing_video.get('transcript') if existing_video else None)
+                    if transcript_for_embedding:
+                        if isinstance(transcript_for_embedding, list):
+                            for segment in transcript_for_embedding:
+                                text_content.append(segment.get('text', ''))
+                        else:
+                            text_content.append(str(transcript_for_embedding))
+                    
+                    # Add scene descriptions (current or existing)
+                    scenes_for_embedding = scenes_data or (existing_video.get('descriptions') if existing_video else None)
+                    if scenes_for_embedding:
+                        # Handle case where descriptions might be stored as JSON string
+                        if isinstance(scenes_for_embedding, str):
+                            import json
+                            try:
+                                scenes_for_embedding = json.loads(scenes_for_embedding)
+                            except:
+                                scenes_for_embedding = []
+                        
+                        for scene in scenes_for_embedding:
+                            # Try both field names for backward compatibility
+                            desc = scene.get('ai_description', '') or scene.get('description', '')
+                            if desc:
+                                text_content.append(desc)
+                    
+                    # Add tags
+                    all_tags = set()
+                    if scenes_for_embedding:
+                        # Ensure scenes_for_embedding is a list
+                        if isinstance(scenes_for_embedding, str):
+                            import json
+                            try:
+                                scenes_for_embedding = json.loads(scenes_for_embedding)
+                            except:
+                                scenes_for_embedding = []
+                        
+                        for scene in scenes_for_embedding:
+                            # Try both field names for backward compatibility
+                            scene_tags = scene.get("ai_tags", []) or scene.get("tags", [])
+                            if scene_tags:
+                                all_tags.update(scene_tags)
+                    
+                    # Always try to save to Qdrant even if no text content (for metadata)
+                    if text_content:
+                        # Combine all text for embedding
+                        combined_text = " ".join(text_content)
+                        
+                        # Generate embedding
+                        embedding = await db.connections.generate_embedding(combined_text)
+                        
+                        if embedding:
+                            # Prepare metadata for Qdrant
+                            qdrant_metadata = {
+                                "video_id": video_id or f"temp_{carousel_index}",
+                                "url": normalized_url,
+                                "carousel_index": carousel_index,
+                                "has_transcript": bool(transcript_data),
+                                "has_scenes": bool(scenes_data),
+                                "tags": list(all_tags),
+                                "text_content": combined_text[:1000],  # Truncate for storage
+                                "created_at": str(datetime.now())
+                            }
+                            
+                            # Store in Qdrant (use UUID for vector ID)
+                            import uuid
+                            vector_id = str(uuid.uuid4())
+                            success = await db.connections.store_vector(
+                                collection_name=collection_name,
+                                vector_id=vector_id,
+                                embedding=embedding,
+                                metadata=qdrant_metadata
+                            )
+                            
+                            if success:
+                                logger.info(f"✅ Video {carousel_index} saved to Qdrant: {vector_id}")
+                                qdrant_saved = True
+                            else:
+                                logger.warning(f"⚠️ Failed to save video {carousel_index} to Qdrant")
+                        else:
+                            logger.warning(f"⚠️ Failed to generate embedding for video {carousel_index}")
+                    else:
+                        logger.info(f"ℹ️ No text content for video {carousel_index} - skipping Qdrant storage")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Qdrant save failed for video {carousel_index}: {e}")
+            elif not save_to_qdrant:
+                logger.info(f"⏭️ Skipping Qdrant save for video {carousel_index} (save_to_qdrant=false)")
+            elif not db.connections.qdrant_client:
+                logger.warning(f"⚠️ Qdrant client not available for video {carousel_index}")
+            elif not db.connections.openai_client:
+                logger.warning(f"⚠️ OpenAI client not available for embeddings for video {carousel_index}")
             
             # Prepare response for this video
             all_tags = set()
@@ -311,7 +423,8 @@ async def process_video_unified_simple(
                     "tags": list(all_tags)
                 },
                 "database": {
-                    "saved": bool(video_id),
+                    "postgres_saved": bool(video_id),
+                    "qdrant_saved": qdrant_saved,
                     "video_stored": bool(existing_video and existing_video["has_video"]) if existing_video else bool(current_save_video and video_id)
                 }
             }
@@ -331,6 +444,8 @@ async def process_video_unified_simple(
         # Prepare final response
         is_carousel = len(video_files) > 1
         total_credits_saved = sum(1 for v in processed_videos if v["processing"].get("ai_credits_saved", False))
+        postgres_saves = sum(1 for v in processed_videos if v["database"].get("postgres_saved", False))
+        qdrant_saves = sum(1 for v in processed_videos if v["database"].get("qdrant_saved", False))
         
         response = {
             "success": True,
@@ -345,7 +460,13 @@ async def process_video_unified_simple(
             "processing": {
                 "download": True,
                 "total_videos_processed": len(processed_videos),
-                "ai_credits_saved_count": total_credits_saved
+                "ai_credits_saved_count": total_credits_saved,
+                "database_operations": {
+                    "postgres_enabled": save_to_postgres,
+                    "qdrant_enabled": save_to_qdrant,
+                    "postgres_saves": postgres_saves,
+                    "qdrant_saves": qdrant_saves
+                }
             },
             "videos": processed_videos,
             "video_ids": all_video_ids

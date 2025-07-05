@@ -304,6 +304,18 @@ curl "http://localhost:8500/carousel?url=https://www.instagram.com/p/DLPa9I7sU9Y
 
 ## API Endpoints
 
+### 🚨 Quick Reference - Recommended Endpoints
+
+**For most use cases, use these endpoints:**
+
+| Endpoint | Use Case | Request Body |
+|----------|----------|--------------|
+| `/process/simple` | **Flexible processing** | `{"url": "...", "save_video": true, "transcribe": true, "describe": true, "save_to_postgres": true, "save_to_qdrant": true}` |
+| `/process/full` | **Complete processing** | `{"url": "..."}` |
+| `/process/transcript-only` | **Transcript only** | `{"url": "..."}` |
+
+**⚠️ Common Error:** Don't use `/process/unified` unless you understand the legacy string parameters!
+
 ### Core Processing Endpoints
 
 #### `/process/full` - Complete Processing
@@ -370,16 +382,20 @@ POST /process/simple
 ```json
 {
     "url": "https://www.instagram.com/p/...",
-    "save_video": true,      // Save video base64 to database
-    "transcribe": true,      // Generate transcript
-    "describe": true,        // Generate AI scene descriptions
-    "include_base64": false  // Include base64 in response (large!)
+    "save_video": true,         // Save video base64 to database
+    "transcribe": true,         // Generate transcript
+    "describe": true,           // Generate AI scene descriptions
+    "save_to_postgres": true,   // Save to PostgreSQL database
+    "save_to_qdrant": true,     // Save to Qdrant vector database (requires OpenAI)
+    "include_base64": false     // Include base64 in response (large!)
 }
 ```
 
+**Database Control:** ✅ Independent control over PostgreSQL and Qdrant storage
 **Carousel Support:** ✅ All options apply to each video in carousel
+**Embedding:** Uses OpenAI for consistent vector embeddings
 
-#### `/process/unified` - Advanced Processing with Database Options
+#### `/process/unified` - Legacy Advanced Processing ⚠️
 ```bash
 POST /process/unified
 ```
@@ -389,22 +405,24 @@ POST /process/unified
 {
     "url": "https://www.instagram.com/p/...",
     "save": false,           // Save video to database
-    "transcribe": "raw",     // "raw", "timestamp", or null (NOT boolean!)
+    "transcribe": "raw",     // ⚠️ STRING: "raw", "timestamp", or null (NOT boolean!)
     "describe": false,       // Generate scene descriptions
     "save_to_postgres": true,// Save to PostgreSQL database
     "save_to_qdrant": true   // Save to Qdrant vector database
 }
 ```
 
-**Transcribe Options:**
+**⚠️ IMPORTANT - Transcribe Parameter:**
+- **Type:** `string | null` (NOT boolean!)
 - `"raw"` - Enable raw transcription
 - `"timestamp"` - Enable timestamped transcription  
-- `null` - Disable transcription (NOT `false`!)
+- `null` - Disable transcription
+- **Common Error:** Sending `true/false` will cause 422 validation error
 
 **Carousel Support:** ✅ Full compatibility with carousel processing
-**Use Case:** When you need granular control over database storage options
-**Status:** ⚠️ **Partial Implementation** - `save_to_postgres` works, `save_to_qdrant` needs implementation
-**Note:** Currently maps to simple processor (PostgreSQL only)
+**Use Case:** Legacy endpoint for backward compatibility
+**Status:** ⚠️ **Legacy Endpoint** - Use `/process/simple` for new integrations
+**Note:** Currently maps to full processor with PostgreSQL and Qdrant support
 
 ### Carousel-Specific Endpoints
 
@@ -485,6 +503,44 @@ The system automatically checks for existing data to avoid wasting AI credits:
   ]
 }
 ```
+
+## 🚨 Common API Errors & Solutions
+
+### 422 Validation Error: "Input should be a valid string"
+
+**Problem:** You're sending boolean values to `/process/unified` endpoint
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": true  // ❌ WRONG - This causes 422 error
+}
+```
+
+**Solutions:**
+
+1. **Use `/process/simple` instead (Recommended):**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": true  // ✅ CORRECT - Boolean values work here
+}
+```
+
+2. **Fix the `/process/unified` request:**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": "raw"  // ✅ CORRECT - String value required
+}
+```
+
+### Parameter Type Reference
+
+| Endpoint | `transcribe` Type | `describe` Type | `save_video` Type | `save_to_postgres` Type | `save_to_qdrant` Type |
+|----------|------------------|-----------------|------------------|------------------------|---------------------|
+| `/process/simple` | `boolean` | `boolean` | `boolean` | `boolean` | `boolean` |
+| `/process/full` | N/A (auto) | N/A (auto) | N/A (auto) | N/A (auto) | N/A (auto) |
+| `/process/unified` | `string \| null` | `boolean` | `boolean` | `boolean` | `boolean` |
 
 ## Enhanced AI Scene Analysis
 

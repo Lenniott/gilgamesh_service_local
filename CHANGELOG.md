@@ -1,5 +1,223 @@
 # CHANGELOG
 
+## [2.2.8] - 2024-12-23 - Complete Database Control & OpenAI Embeddings
+
+### 🎯 **PERFECT: Full Database Control with Consistent Embeddings**
+
+**Added Independent Database Control**: You can now control PostgreSQL and Qdrant storage independently with consistent OpenAI embeddings.
+
+#### **What You Asked For:**
+- **`save_to_postgres`**: Boolean control over PostgreSQL storage
+- **`save_to_qdrant`**: Boolean control over Qdrant storage  
+- **Independent control**: Save to one, both, or neither database
+- **OpenAI embeddings**: Consistent vector embeddings using OpenAI (not Gemini)
+- **Full transcript & description capture**: Everything gets processed and stored correctly
+
+#### **New `/process/simple` Parameters:**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "save_video": true,         // Save video base64 to PostgreSQL
+  "transcribe": true,         // Generate transcript
+  "describe": true,           // Generate AI scene descriptions  
+  "save_to_postgres": true,   // Save to PostgreSQL database
+  "save_to_qdrant": true,     // Save to Qdrant vector database
+  "include_base64": false     // Include base64 in response
+}
+```
+
+#### **Database Control Examples:**
+
+**PostgreSQL Only:**
+```json
+{"save_to_postgres": true, "save_to_qdrant": false}
+```
+
+**Qdrant Only:**
+```json
+{"save_to_postgres": false, "save_to_qdrant": true}
+```
+
+**Both Databases:**
+```json
+{"save_to_postgres": true, "save_to_qdrant": true}
+```
+
+**Neither Database (Processing Only):**
+```json
+{"save_to_postgres": false, "save_to_qdrant": false}
+```
+
+#### **Response Format:**
+```json
+{
+  "processing": {
+    "database_operations": {
+      "postgres_enabled": true,
+      "qdrant_enabled": true,
+      "postgres_saves": 1,
+      "qdrant_saves": 1
+    }
+  },
+  "videos": [
+    {
+      "database": {
+        "postgres_saved": true,
+        "qdrant_saved": true,
+        "video_stored": true
+      }
+    }
+  ]
+}
+```
+
+#### **Technical Implementation:**
+- **OpenAI Embeddings**: All Qdrant vectors use OpenAI `text-embedding-3-small` for consistency
+- **Validation**: Requires OpenAI client for Qdrant operations
+- **Error Handling**: Clear logging for missing clients or failed operations
+- **Backward Compatible**: Existing calls default to saving to both databases
+
+#### **Requirements for Qdrant:**
+- **OpenAI API Key**: Required for consistent embeddings
+- **Qdrant Connection**: Must be available and configured
+- **Text Content**: Transcript or descriptions needed for vectorization
+
+---
+
+## [2.2.7] - 2024-12-23 - Critical Qdrant Integration Fix
+
+### 🚨 **URGENT: Fixed Missing Qdrant Integration**
+
+**Fixed Critical Bug**: The `/process/simple` endpoint was not saving transcript and description data to Qdrant, only to PostgreSQL.
+
+#### **What Was Wrong**
+- **`/process/simple`**: Only saved to PostgreSQL, completely ignored Qdrant
+- **`/process/unified`**: Had Qdrant support but used confusing legacy parameters
+- **Qdrant storage**: Failed silently when videos had no audio/transcript
+- **Result**: Users expecting Qdrant vectorization got nothing
+
+#### **What's Fixed**
+- **Added full Qdrant support** to `/process/simple` endpoint
+- **Improved Qdrant storage logic** to handle videos without audio
+- **Better error logging** for Qdrant connection issues
+- **Response includes Qdrant save status** for debugging
+
+#### **Technical Changes**
+```python
+# NEW: Added to process_video_unified_simple()
+# Save to Qdrant (NEW: Added Qdrant support to simple processor)
+qdrant_saved = False
+if db.connections and db.connections.qdrant_client:
+    # Create text content for embedding from transcript + descriptions
+    # Store vector with metadata even if no audio
+    # Return qdrant_saved status in response
+```
+
+#### **Response Format Updated**
+```json
+{
+  "processing": {
+    "database_operations": {
+      "postgres_saves": 1,
+      "qdrant_saves": 1  // NEW: Shows Qdrant save status
+    }
+  },
+  "videos": [
+    {
+      "database": {
+        "postgres_saved": true,
+        "qdrant_saved": true,  // NEW: Per-video Qdrant status
+        "video_stored": true
+      }
+    }
+  ]
+}
+```
+
+#### **Impact**
+- **`/process/simple`**: Now saves to both PostgreSQL AND Qdrant
+- **Better debugging**: Response shows exactly what was saved where
+- **Backward compatible**: Existing API calls now get Qdrant storage automatically
+- **Semantic search**: Transcript and description data now properly vectorized
+
+#### **Migration**
+- **No changes needed**: Existing `/process/simple` calls automatically get Qdrant storage
+- **Check responses**: Look for `qdrant_saved: true` to confirm vectorization
+- **Environment**: Ensure `QDRANT_URL` and `QDRANT_API_KEY` are set
+
+---
+
+## [2.2.6] - 2024-12-23 - Critical API Documentation Fix
+
+### 🚨 **URGENT: API Documentation Correction**
+
+**Fixed Critical API Documentation Error**: The README was showing incorrect parameter types for the `/process/unified` endpoint, causing 422 validation errors.
+
+#### **What Was Wrong**
+- **README showed**: `"transcribe": true` (boolean) for `/process/unified`
+- **API expects**: `"transcribe": "raw"` (string) for `/process/unified`
+- **Result**: Users getting 422 "Input should be a valid string" errors
+
+#### **Documentation Fixes**
+- **Added**: 🚨 Quick Reference section with recommended endpoints
+- **Added**: Common API Errors & Solutions section
+- **Added**: Parameter Type Reference table
+- **Updated**: `/process/unified` endpoint documentation with clear warnings
+- **Highlighted**: `/process/simple` as the recommended endpoint for boolean parameters
+
+#### **Key Changes**
+```markdown
+### 🚨 Quick Reference - Recommended Endpoints
+
+| Endpoint | Use Case | Request Body |
+|----------|----------|--------------|
+| `/process/simple` | **Flexible processing** | `{"url": "...", "save_video": true, "transcribe": true, "describe": true}` |
+| `/process/unified` | **Legacy endpoint** | `{"url": "...", "transcribe": "raw", "describe": false}` |
+
+**⚠️ Common Error:** Don't use `/process/unified` unless you understand the legacy string parameters!
+```
+
+#### **Parameter Type Reference**
+
+| Endpoint | `transcribe` Type | `describe` Type | `save_video` Type |
+|----------|------------------|-----------------|------------------|
+| `/process/simple` | `boolean` | `boolean` | `boolean` |
+| `/process/full` | N/A (auto) | N/A (auto) | N/A (auto) |
+| `/process/unified` | `string \| null` | `boolean` | `boolean` |
+
+#### **Solutions for Common Errors**
+
+**❌ Wrong (causes 422 error):**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": true
+}
+```
+
+**✅ Correct Options:**
+```json
+// Option 1: Use /process/simple (recommended)
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": true
+}
+
+// Option 2: Fix /process/unified request
+{
+  "url": "https://www.instagram.com/p/...",
+  "transcribe": "raw"
+}
+```
+
+#### **Impact**
+- **Prevents**: 422 validation errors for new users
+- **Clarifies**: Which endpoint to use for different parameter types
+- **Guides**: Users to the correct endpoint for their use case
+- **Reduces**: Support burden from API parameter confusion
+
+---
+
 ## [2.2.5] - 2024-12-23 - Production-Ready Docker Deployment
 
 ### 🐳 **NEW: Complete Docker Deployment Stack**
