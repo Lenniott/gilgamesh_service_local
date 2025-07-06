@@ -15,6 +15,8 @@ from app.ai_requirements_generator import RequirementsGenerator
 from app.compilation_search import CompilationSearchEngine
 from app.ai_script_generator import ScriptGenerator, CompilationScript
 from app.generated_video_operations import GeneratedVideoDatabase
+from app.audio_generator import OpenAITTSGenerator, AudioGenerationResult
+from app.audio_processor import AudioProcessor, AudioProcessingResult
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,8 @@ class CompilationPipeline:
         self.search_engine = None
         self.script_generator = None
         self.generated_video_db = None
+        self.audio_generator = None
+        self.audio_processor = None
     
     async def initialize(self):
         """Initialize all pipeline components."""
@@ -67,6 +71,8 @@ class CompilationPipeline:
             self.search_engine = CompilationSearchEngine(self.connections)
             self.script_generator = ScriptGenerator(self.connections)
             self.generated_video_db = GeneratedVideoDatabase(self.connections)
+            self.audio_generator = OpenAITTSGenerator(self.connections)
+            self.audio_processor = AudioProcessor()
             
             logger.info("✅ Compilation pipeline initialized successfully")
             return True
@@ -298,27 +304,102 @@ class CompilationPipeline:
         Returns:
             List of audio segment metadata
         """
-        # TODO: Implement OpenAI TTS integration
-        # For now, return placeholder audio segments
-        
         logger.info(f"🎵 Generating {len(script.segments)} audio segments with voice '{voice_model}'...")
+        
+        try:
+            # Generate audio using OpenAI TTS
+            audio_result = await self.audio_generator.generate_audio_from_script(
+                script=script,
+                voice_preference=voice_model,
+                use_voice_variety=True,  # Use different voices for different segment types
+                high_quality=False  # Use standard quality for faster generation
+            )
+            
+            if not audio_result.success:
+                logger.error(f"❌ Audio generation failed: {audio_result.error}")
+                return self._create_placeholder_audio_segments(script, voice_model)
+            
+            # Process audio for optimization and timing
+            target_timings = [(seg.start_time, seg.end_time) for seg in script.segments]
+            processing_result = await self.audio_processor.process_audio_segments(
+                audio_result=audio_result,
+                target_timings=target_timings,
+                enable_crossfades=True,
+                enable_normalization=True,
+                enable_noise_reduction=False  # Disable for speed
+            )
+            
+            # Convert to expected format
+            audio_segments = []
+            for processed in processing_result.processed_audio:
+                audio_segment = {
+                    "segment_id": processed.segment_id,
+                    "script_text": processed.original_audio.script_text,
+                    "start_time": processed.original_audio.start_time,
+                    "end_time": processed.original_audio.end_time,
+                    "duration": processed.original_audio.duration,
+                    "voice_model": processed.original_audio.voice_model,
+                    "audio_base64": processed.processed_audio_base64 or processed.original_audio.audio_base64,
+                    "file_size": processed.file_size_after or processed.original_audio.file_size,
+                    "generation_time": processed.original_audio.generation_time,
+                    "processing_time": processed.processing_time,
+                    "status": processed.status,
+                    "timing_adjustment": {
+                        "speed_factor": processed.timing_adjustment.speed_factor,
+                        "padding_before": processed.timing_adjustment.padding_before,
+                        "padding_after": processed.timing_adjustment.padding_after
+                    } if processed.timing_adjustment else None,
+                    "optimizations": {
+                        "normalization_applied": processed.normalization_applied,
+                        "crossfade_applied": processed.crossfade_applied,
+                        "noise_reduction_applied": processed.noise_reduction_applied
+                    }
+                }
+                audio_segments.append(audio_segment)
+            
+            # Log generation summary
+            successful_segments = sum(1 for seg in audio_segments if seg["status"] == "completed")
+            total_generation_time = audio_result.total_generation_time + processing_result.total_processing_time
+            estimated_cost = audio_result.metadata.get("estimated_cost", 0.0)
+            
+            logger.info(f"✅ Generated {successful_segments}/{len(audio_segments)} audio segments successfully")
+            logger.info(f"⏱️ Total audio generation time: {total_generation_time:.2f}s")
+            logger.info(f"💰 Estimated TTS cost: ${estimated_cost:.4f}")
+            logger.info(f"🎤 Voice distribution: {audio_result.metadata.get('voice_distribution', {})}")
+            
+            return audio_segments
+            
+        except Exception as e:
+            logger.error(f"❌ Audio generation pipeline failed: {e}")
+            return self._create_placeholder_audio_segments(script, voice_model)
+    
+    def _create_placeholder_audio_segments(self, script: CompilationScript, voice_model: str) -> List[Dict[str, Any]]:
+        """Create placeholder audio segments when generation fails."""
+        logger.warning("🔄 Creating placeholder audio segments")
         
         audio_segments = []
         for i, segment in enumerate(script.segments):
-            # Placeholder audio segment
             audio_segment = {
-                "segment_id": f"audio_{i}",
+                "segment_id": f"placeholder_{i:03d}",
                 "script_text": segment.script_text,
                 "start_time": segment.start_time,
                 "end_time": segment.end_time,
                 "duration": segment.duration,
                 "voice_model": voice_model,
-                "audio_base64": None,  # TODO: Generate actual audio
-                "status": "placeholder"
+                "audio_base64": None,  # No actual audio
+                "file_size": 0,
+                "generation_time": 0.0,
+                "processing_time": 0.0,
+                "status": "placeholder",
+                "timing_adjustment": None,
+                "optimizations": {
+                    "normalization_applied": False,
+                    "crossfade_applied": False,
+                    "noise_reduction_applied": False
+                }
             }
             audio_segments.append(audio_segment)
         
-        logger.info(f"✅ Generated {len(audio_segments)} audio segments (placeholder)")
         return audio_segments
     
     async def _compose_final_video(self, script: CompilationScript, 

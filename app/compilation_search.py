@@ -138,7 +138,7 @@ class CompilationSearchEngine:
                 collection_name=self.transcript_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.7,  # Minimum relevance score
+                score_threshold=0.3,  # Lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -147,10 +147,10 @@ class CompilationSearchEngine:
                 try:
                     payload = point.payload
                     
-                    # Extract metadata from payload
+                    # Extract metadata from payload (handle both field name formats)
                     video_id = payload.get("video_id", "")
-                    start_time = float(payload.get("start_time", 0))
-                    end_time = float(payload.get("end_time", 0))
+                    start_time = float(payload.get("start", payload.get("start_time", 0)))
+                    end_time = float(payload.get("end", payload.get("end_time", 0)))
                     content_text = payload.get("text", "")
                     tags = payload.get("tags", [])
                     
@@ -192,7 +192,7 @@ class CompilationSearchEngine:
                 collection_name=self.scene_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.7,  # Minimum relevance score
+                score_threshold=0.3,  # Lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -201,10 +201,10 @@ class CompilationSearchEngine:
                 try:
                     payload = point.payload
                     
-                    # Extract metadata from payload
+                    # Extract metadata from payload (handle both field name formats)
                     video_id = payload.get("video_id", "")
-                    start_time = float(payload.get("start_time", 0))
-                    end_time = float(payload.get("end_time", 0))
+                    start_time = float(payload.get("start_time", payload.get("start", 0)))
+                    end_time = float(payload.get("end_time", payload.get("end", 0)))
                     content_text = payload.get("description", "")
                     tags = payload.get("tags", [])
                     
@@ -453,4 +453,89 @@ class CompilationSearchEngine:
                 "matches": len(worst_query.matches)
             },
             "queries_with_no_matches": sum(1 for r in search_results if not r.matches)
-        } 
+        }
+
+    # --- ENHANCED COMPILATION SEARCH METHOD ---
+
+    async def search_for_compilation(self, search_queries: List[SearchQuery], 
+                                   max_total_duration: float = 600.0,
+                                   max_results_per_query: int = 10) -> 'CompilationSearchResult':
+        """
+        High-level search method for video compilation.
+        
+        Args:
+            search_queries: List of SearchQuery objects
+            max_total_duration: Maximum total duration for all matches
+            max_results_per_query: Maximum results to return per query
+            
+        Returns:
+            CompilationSearchResult with aggregated results
+        """
+        try:
+            # Perform the actual search
+            search_results = await self.search_content_segments(
+                queries=search_queries,
+                max_results_per_query=max_results_per_query
+            )
+            
+            # Aggregate all matches
+            all_matches = []
+            for result in search_results:
+                all_matches.extend(result.matches)
+            
+            # Sort by relevance score
+            all_matches.sort(key=lambda m: m.relevance_score, reverse=True)
+            
+            # Filter by total duration
+            selected_matches = []
+            total_duration = 0.0
+            
+            for match in all_matches:
+                if total_duration + match.duration <= max_total_duration:
+                    selected_matches.append(match)
+                    total_duration += match.duration
+                else:
+                    break
+            
+            # Calculate average relevance
+            avg_relevance = sum(m.relevance_score for m in selected_matches) / len(selected_matches) if selected_matches else 0.0
+            
+            # Generate search summary
+            search_summary = self.get_search_summary(search_results)
+            
+            return CompilationSearchResult(
+                success=True,
+                content_matches=selected_matches,
+                total_duration=total_duration,
+                average_relevance=avg_relevance,
+                search_summary=search_summary
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Compilation search failed: {e}")
+            return CompilationSearchResult(
+                success=False,
+                content_matches=[],
+                total_duration=0.0,
+                average_relevance=0.0,
+                search_summary={},
+                error_message=str(e)
+            )
+
+
+# --- COMPILATION SEARCH RESULT ---
+
+@dataclass
+class CompilationSearchResult:
+    """High-level search result for video compilation requests."""
+    success: bool
+    content_matches: List[ContentMatch]
+    total_duration: float
+    average_relevance: float
+    search_summary: Dict[str, Any]
+    error_message: Optional[str] = None
+    
+    @property
+    def unique_video_count(self) -> int:
+        """Get count of unique videos in results."""
+        return len(set(match.video_id for match in self.content_matches)) 

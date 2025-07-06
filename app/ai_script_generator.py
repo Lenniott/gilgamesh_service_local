@@ -405,6 +405,11 @@ Make the script engaging, clear, and appropriate for the user's fitness level. E
         
         # Adjust timing if needed
         if abs(current_duration - target_duration) > 5.0:  # More than 5 seconds difference
+            # Prevent division by zero
+            if current_duration <= 0:
+                logger.warning(f"⚠️ Current duration is {current_duration}, cannot scale timing")
+                return script_segments
+            
             scale_factor = target_duration / current_duration
             
             # Adjust each segment proportionally
@@ -459,7 +464,18 @@ Make the script engaging, clear, and appropriate for the user's fitness level. E
         # Create basic segments using available matches
         segments = []
         current_time = 0.0
-        segment_duration = target_duration / min(4, len(all_matches))
+        
+        # Prevent division by zero
+        num_segments = min(4, len(all_matches))
+        if num_segments == 0:
+            logger.warning("⚠️ No segments available for fallback script")
+            return CompilationScript(
+                total_duration=0.0,
+                segments=[],
+                metadata={"fallback": True, "error": "No content matches available"}
+            )
+        
+        segment_duration = target_duration / num_segments
         
         for i, match in enumerate(all_matches[:4]):  # Use up to 4 matches
             segment = ScriptSegment(
