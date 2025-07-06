@@ -403,6 +403,7 @@ We've simplified the API to a single, powerful endpoint with full parameter cont
 - **Clean Boolean API**: All parameters are `true`/`false` (no confusing strings)
 - **Raw Transcript Support**: Get clean text output with `raw_transcript: true`
 - **Smart Processing**: Only processes missing data to optimize costs
+- **Advanced Rate Limiting**: Automatic handling of AI API quotas and throttling
 
 ### 🚨 Quick Reference - Recommended Endpoints
 
@@ -570,6 +571,43 @@ GET /videos?limit=20
 #### `/health` - Health Check
 ```bash
 GET /health
+```
+
+#### `/rate-limits` - Rate Limiting Status
+```bash
+GET /rate-limits
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "providers": {
+    "openai": {
+      "provider": "openai",
+      "current_usage": {
+        "requests_this_minute": 15,
+        "tokens_this_minute": 45000,
+        "daily_requests": 2341,
+        "daily_tokens": 890234
+      },
+      "limits": {
+        "requests_per_minute": 60,
+        "tokens_per_minute": 150000,
+        "daily_quota": 100000
+      },
+      "circuit_breaker": {
+        "state": "closed",
+        "failure_count": 0,
+        "success_count": 25
+      },
+      "availability": {
+        "can_proceed": true,
+        "next_reset": "2024-12-24T00:00:00Z"
+      }
+    }
+  }
+}
 ```
 
 ## Smart AI Credit Management
@@ -976,6 +1014,88 @@ curl -X POST "http://localhost:8500/vectorize/existing" \
      -d '{}'                                                # Process all unvectorized videos
 ```
 
+#### Force Qdrant Indexing:
+
+**`POST /qdrant/force-index`** - Force indexing of Qdrant collections for AI video compilation pipeline.
+
+**Use Case:** When you have vectors in Qdrant collections but they aren't indexed yet, preventing efficient search operations.
+
+**Request Body:**
+```json
+{
+    "collections": ["video_transcript_segments", "video_scene_descriptions"],  // Optional: specific collections to index
+    "force_rebuild": false  // Optional: whether to force full index rebuild
+}
+```
+
+**Examples:**
+```bash
+# Force index default collections (video_transcript_segments, video_scene_descriptions)
+curl -X POST "http://localhost:8500/qdrant/force-index" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+
+# Force index specific collections
+curl -X POST "http://localhost:8500/qdrant/force-index" \
+     -H "Content-Type: application/json" \
+     -d '{"collections": ["video_transcript_segments"]}'
+
+# Force full index rebuild
+curl -X POST "http://localhost:8500/qdrant/force-index" \
+     -H "Content-Type: application/json" \
+     -d '{"force_rebuild": true}'
+
+# Force index with specific collections and rebuild
+curl -X POST "http://localhost:8500/qdrant/force-index" \
+     -H "Content-Type: application/json" \
+     -d '{"collections": ["video_scene_descriptions"], "force_rebuild": true}'
+```
+
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Indexing completed for 2 collections",
+    "collections_processed": ["video_transcript_segments", "video_scene_descriptions"],
+    "force_rebuild": false,
+    "results": {
+        "video_transcript_segments": {
+            "success": true,
+            "before": {"points_count": 1250, "indexed_vectors_count": 0},
+            "after": {"points_count": 1250, "indexed_vectors_count": 1250},
+            "indexing_triggered": true,
+            "force_rebuild": false
+        },
+        "video_scene_descriptions": {
+            "success": true,
+            "before": {"points_count": 380, "indexed_vectors_count": 0},
+            "after": {"points_count": 380, "indexed_vectors_count": 380},
+            "indexing_triggered": true,
+            "force_rebuild": false
+        }
+    },
+    "next_steps": {
+        "test_search": "Use /search endpoint to test if search now works",
+        "ai_compilation": "Try the AI video compilation pipeline",
+        "verify_indexing": "Check that indexed_vectors_count > 0 for your collections"
+    }
+}
+```
+
+**Key Features:**
+- **Automatic Collection Selection**: Defaults to AI video compilation collections
+- **Smart Indexing**: Only triggers indexing when needed
+- **Force Rebuild**: Option to completely rebuild indexes
+- **Detailed Reporting**: Shows before/after stats for each collection
+- **Error Handling**: Graceful handling of missing collections or indexing failures
+- **Next Steps Guidance**: Provides recommendations for testing and verification
+
+**Perfect for:**
+- Fixing search issues after bulk vectorization
+- Ensuring AI video compilation pipeline works correctly
+- Optimizing Qdrant performance for large datasets
+- Troubleshooting vector search problems
+
 **Command Line (Alternative):**
 ```bash
 # Vectorize existing videos that haven't been vectorized yet
@@ -1061,13 +1181,82 @@ curl -X POST "http://localhost:8500/process/full" \
      -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
 ```
 
-## Performance
+## Performance & Rate Limiting
 
 - **Smart Caching:** Avoids duplicate AI processing per carousel video
 - **Automatic Cleanup:** Temporary files cleaned after processing
 - **Concurrent Processing:** Handles multiple requests efficiently
 - **Optimized Database:** Single-table design for fast queries
 - **Carousel Efficiency:** Individual video credit management in carousels
+- **Advanced Rate Limiting:** Comprehensive AI API rate limiting with circuit breakers
+
+### 🚦 **AI Rate Limiting Features**
+
+**Comprehensive Rate Limiting for OpenAI & Gemini APIs:**
+- **Exponential Backoff:** Intelligent retry logic with jitter
+- **Circuit Breaker:** Temporary service blocking after repeated failures
+- **Daily Quota Tracking:** Monitors daily usage limits
+- **Token Usage Monitoring:** Tracks token consumption per provider
+- **Provider Switching:** Graceful degradation when quotas exceeded
+- **Real-time Statistics:** Live monitoring of API usage
+
+**Rate Limiting Configuration:**
+```bash
+# OpenAI Limits (GPT-4 Vision)
+Requests per minute: 60
+Tokens per minute: 150,000
+Daily quota: 100,000 requests
+Concurrent requests: 10
+
+# Gemini Limits (Flash 2.0)
+Requests per minute: 100
+Tokens per minute: 300,000
+Daily quota: 1,000,000 requests
+Concurrent requests: 10
+```
+
+**Rate Limiting Monitoring:**
+```bash
+# Check current rate limiting status
+curl "http://localhost:8500/rate-limits"
+
+# Example Response
+{
+  "success": true,
+  "providers": {
+    "openai": {
+      "provider": "openai",
+      "current_usage": {
+        "requests_this_minute": 15,
+        "tokens_this_minute": 45000,
+        "daily_requests": 2341,
+        "daily_tokens": 890234
+      },
+      "limits": {
+        "requests_per_minute": 60,
+        "tokens_per_minute": 150000,
+        "daily_quota": 100000
+      },
+      "circuit_breaker": {
+        "state": "closed",
+        "failure_count": 0,
+        "success_count": 25
+      },
+      "availability": {
+        "can_proceed": true,
+        "next_reset": "2024-12-24T00:00:00Z"
+      }
+    }
+  }
+}
+```
+
+**Rate Limiting Behavior:**
+- **Automatic Retry:** Exponential backoff with jitter (1s → 2s → 4s → 8s → 16s)
+- **Circuit Breaker:** Opens after 5 failures, closes after 3 successes
+- **Daily Quota:** Fails fast when daily quota exceeded
+- **Provider Fallback:** Graceful degradation to backup providers
+- **Token Estimation:** Intelligent token usage prediction
 
 ## Contributing
 

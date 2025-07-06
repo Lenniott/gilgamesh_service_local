@@ -1,208 +1,374 @@
 # CHANGELOG
 
-## Test Suite Consolidation - 2024-12-23 ✅
+## MAJOR FEATURE: Advanced AI Rate Limiting System - 2024-12-23 🚦
 
-### 🧪 **MAJOR CLEANUP: Consolidated Test Files**
+### 🚦 **NEW: Comprehensive AI API Rate Limiting with Circuit Breakers**
 
-**Streamlined testing infrastructure from 9 redundant files to 1 comprehensive test suite.**
+**Implemented advanced rate limiting system to handle OpenAI and Gemini API quotas, throttling, and daily limits.**
 
-#### **Test Files Removed:**
-- ❌ `test_working_database_search.py`
-- ❌ `test_real_database_query.py`
-- ❌ `test_actual_database_content.py`
-- ❌ `test_compilation_pipeline_simple.py`
-- ❌ `test_complete_llm_pipeline.py`
-- ❌ `test_llm_analysis_detailed.py`
-- ❌ `test_qdrant_content_verification.py`
-- ❌ `test_real_compilation_request.py`
-- ❌ `force_qdrant_indexing.py` (debugging script)
-- ❌ `analyze_and_optimize_search.py` (debugging script)
+#### **Key Features Implemented:**
 
-#### **New Consolidated Test:**
-- ✅ **`test_ai_video_compilation.py`** - Comprehensive test suite covering all pipeline stages
+**1. Exponential Backoff with Jitter** ✅
+- **Smart Retry Logic**: Exponential backoff (1s → 2s → 4s → 8s → 16s)
+- **Jitter Addition**: ±25% randomization to prevent thundering herd
+- **Max Delay Cap**: 5-minute maximum to prevent infinite waits
+- **Fast Fail**: Immediate failure for daily quota exhaustion
 
-#### **Test Coverage:**
-1. **Database Connectivity** - PostgreSQL and Qdrant connection testing
-2. **Component Structure** - Import validation for all pipeline components
-3. **Requirements Analysis** - AI query generation and search term optimization
-4. **Vector Search** - Qdrant content discovery and relevance scoring
-5. **Script Generation** - AI script creation with video assignments
-6. **Audio Generation** - OpenAI TTS integration and cost analysis
-7. **Full Pipeline** - End-to-end integration testing
+**2. Circuit Breaker Pattern** ✅
+- **Three States**: CLOSED (normal) → OPEN (blocking) → HALF_OPEN (testing)
+- **Failure Threshold**: Opens after 5 consecutive failures
+- **Recovery Threshold**: Closes after 3 consecutive successes
+- **Timeout Protection**: 5-minute timeout before attempting recovery
+- **Automatic Recovery**: Self-healing when services recover
 
-#### **Benefits:**
-- **Simplified Testing**: Single command to test entire pipeline
-- **Consistent Results**: Unified test structure and reporting
-- **Better Documentation**: Clear test stages and outcomes
-- **Reduced Complexity**: Easier to maintain and extend
-- **Comprehensive Coverage**: All functionality tested in logical sequence
-
-#### **Usage:**
-```bash
-# Run comprehensive AI video compilation test
-python test_ai_video_compilation.py
-
-# Outputs detailed results to: ai_compilation_test_results.json
+**3. Rate Limit Detection & Handling** ✅
+```python
+# Detects various rate limiting scenarios
+- "rate limit exceeded" → REQUESTS_PER_MINUTE
+- "daily quota exceeded" → DAILY_QUOTA  
+- "token limit exceeded" → TOKENS_PER_MINUTE
+- "service overloaded" → TEMPORARY_OVERLOAD
 ```
 
-#### **Test Results Format:**
-- **Stage-by-stage reporting** with success/failure status
-- **Detailed component analysis** with performance metrics
-- **Error handling** with fallback testing when databases unavailable
-- **JSON output** for automated testing integration
+**4. Provider-Specific Configurations** ✅
+```python
+# OpenAI (GPT-4 Vision)
+requests_per_minute: 60
+tokens_per_minute: 150,000
+daily_quota: 100,000
 
-**Impact**: Cleaned up codebase from 9 confusing test files to 1 comprehensive test suite, making it much easier to validate the AI video compilation pipeline.
+# Gemini (Flash 2.0)
+requests_per_minute: 100
+tokens_per_minute: 300,000
+daily_quota: 1,000,000
+```
 
----
+**5. Real-time Usage Tracking** ✅
+- **Minute-by-minute tracking**: Requests and token usage
+- **Daily quota monitoring**: Persistent tracking across requests
+- **Automatic resets**: Counters reset at appropriate intervals
+- **Token estimation**: Intelligent prediction based on content
 
-## PHASE 2 COMPLETE - OpenAI TTS Integration ✅
+#### **API Integration:**
 
-### CRITICAL BUG FIXES - Division by Zero Errors
+**Rate-Limited API Calls:**
+```python
+# Before (vulnerable to rate limits)
+response = await openai_client.chat.completions.create(...)
 
-**Fixed in existing video processing pipeline:**
-- ✅ **Fixed division by zero in `app/stitch_scenes.py`** - Added validation for video duration before loop calculations
-- ✅ **Fixed division by zero in `app/scene_detection.py`** - Added protection for single-frame scenes and invalid durations  
-- ✅ **Enhanced `get_video_duration()` error handling** - Returns minimum 1.0s duration instead of 0 to prevent math errors
-- ✅ **Fixed division by zero in `app/audio_processor.py`** - Added target duration validation in timing calculations
-- ✅ **Fixed division by zero in `app/ai_script_generator.py`** - Added protection for zero durations in script timing
+# After (protected with rate limiting)
+rate_limiter = get_rate_limiter("openai")
+response = await rate_limiter.execute_with_rate_limiting(
+    make_openai_call,
+    estimated_tokens=estimated_tokens
+)
+```
 
-**Root Cause:** Video files with zero/invalid duration or single-frame scenes were causing division by zero errors in n8n processing workflow.
-
-**Impact:** Resolves HTTP 500 "division by zero" errors in `/process` endpoint when processing certain video files.
-
----
-
-## PHASE 2 - AI Video Compilation Pipeline: OpenAI TTS Integration
-
-### 🎬 **NEW FEATURE: AI Video Director System**
-
-**Revolutionary Content Creation**: Transform existing video content into new compilations based on high-level user requirements.
-
-#### **Core Vision:**
-Transform the Gilgamesh service from a **content analysis system** into a **content creation system** while maintaining full backward compatibility.
-
-#### **Pipeline Overview:**
-1. **Requirements Analysis**: LLM breaks user needs into structured search queries
-2. **Vector Search**: Leverage existing Qdrant database for content discovery  
-3. **Script Generation**: AI creates segmented script with video assignments
-4. **Audio Generation**: OpenAI TTS generates professional narration ✅ **COMPLETE**
-5. **Video Composition**: Extract and combine video segments with synchronized audio
-6. **Storage**: Save generated videos in new `generated_videos` table
-
-#### **New Components:**
-- **`app/ai_requirements_generator.py`**: Transform user context into search queries ✅
-- **`app/compilation_search.py`**: Enhanced vector search for content discovery ✅
-- **`app/ai_script_generator.py`**: Create structured scripts with timing ✅
-- **`app/audio_generator.py`**: OpenAI TTS integration for narration ✅ **NEW**
-- **`app/audio_processor.py`**: Audio timing synchronization and optimization ✅ **NEW**
-- **`app/video_segment_extractor.py`**: Extract segments from existing base64 videos
-- **`app/video_compositor.py`**: FFmpeg-based video composition with audio sync
-- **`app/generated_video_operations.py`**: Database operations for generated content ✅
-
-#### **New API Endpoint:**
+**New Monitoring Endpoint:**
 ```bash
-POST /compile
+# Monitor rate limiting status
+GET /rate-limits
+
+# Response includes usage stats, limits, circuit breaker state
 {
-  "context": "I'm creating a morning workout routine",
-  "requirements": "5 minutes, beginner-friendly, mobility focus",
-  "title": "Morning Mobility Routine",
-  "voice_preference": "alloy",
-  "resolution": "720p"
+  "success": true,
+  "providers": {
+    "openai": {
+      "current_usage": {...},
+      "limits": {...},
+      "circuit_breaker": {"state": "closed"},
+      "availability": {"can_proceed": true}
+    }
+  }
 }
 ```
 
-**🔌 API-FIRST ARCHITECTURE**: All video compilation functionality accessed through RESTful endpoints:
-- **`POST /compile`**: Main compilation endpoint - transforms user requirements into generated videos ✅ **IMPLEMENTED**
-- **`GET /generated/{video_id}`**: Retrieve generated videos (follows existing `/video/{video_id}` pattern) ✅ **IMPLEMENTED**
-- **`GET /generated/search`**: Search generated videos (follows existing `/search` pattern) ✅ **IMPLEMENTED**
-- **`GET /generated/recent`**: List recent compilations (follows existing `/videos` pattern) ✅ **IMPLEMENTED**
-- **`GET /compile/status/{compilation_id}`**: Get compilation status for long-running generations ✅ **IMPLEMENTED**
+#### **Rate Limiting Behaviors:**
 
-**Integration**: Uses existing FastAPI infrastructure, semaphore concurrency control, and error handling patterns.
+**Scenario 1: Requests Per Minute Limit**
+- **Detection**: "rate limit exceeded" error from API
+- **Action**: Wait until next minute boundary
+- **Retry**: Automatically retry when limit resets
 
-#### **🏗️ PHASE 1 IMPLEMENTATION COMPLETED:**
-1. **✅ AI Requirements Generator** - Transforms user context into structured search queries
-2. **✅ Enhanced Vector Search Engine** - Leverages existing Qdrant for content discovery  
-3. **✅ AI Script Generator** - Creates segmented script with video assignments
-4. **✅ Generated Video Database Operations** - CRUD operations for generated_videos table
-5. **✅ Main Compilation Pipeline** - Orchestrates the entire process
-6. **✅ REST API Endpoints** - Complete API interface following existing patterns
+**Scenario 2: Daily Quota Exceeded**
+- **Detection**: "daily quota exceeded" error
+- **Action**: Fail fast with clear error message
+- **Recovery**: Automatic reset at midnight
 
-#### **🎵 PHASE 2 IMPLEMENTATION COMPLETED:**
-**✅ OpenAI TTS Integration for Audio Generation**
-1. **✅ OpenAI TTS Audio Generator** (`app/audio_generator.py`) - High-quality narration using OpenAI Text-to-Speech API
-2. **✅ Audio Processing Utilities** (`app/audio_processor.py`) - Timing synchronization and optimization  
-3. **✅ Pipeline Integration** - Real audio generation replaces placeholder implementation
-4. **✅ Enhanced Testing** - Extended test suite to 21 tests with 100% success rate
+**Scenario 3: Service Overload**
+- **Detection**: "service overloaded" or similar errors
+- **Action**: Exponential backoff starting at 30 seconds
+- **Circuit Breaker**: Opens after repeated failures
 
-**Audio Features:**
-- **6 OpenAI TTS Voices**: alloy, echo, fable, onyx, nova, shimmer
-- **Smart Voice Mapping**: Different voices for intro, instruction, main, transition, conclusion segments
-- **Quality Options**: Standard (tts-1) and High-Quality (tts-1-hd) models
-- **Audio Processing**: Timing synchronization, normalization, crossfades
-- **Cost Optimization**: Estimated TTS costs and generation time tracking
-- **Fallback System**: Graceful degradation when OpenAI TTS unavailable
+**Scenario 4: Token Limits**
+- **Detection**: Token-specific rate limit errors
+- **Action**: Wait for token limit reset
+- **Estimation**: Better token usage prediction
 
-#### **🔄 NEXT PHASES:**
-- **Phase 3**: FFmpeg video composition and segment extraction
-- **Phase 4**: Performance optimization and advanced features
+#### **Error Handling Examples:**
 
-**Status**: Core pipeline foundation + audio generation complete. Ready for video processing integration.
+```json
+// Quota exceeded (fail fast)
+{
+  "success": false,
+  "error": "Daily quota exceeded for openai - try again tomorrow",
+  "rate_limit_type": "daily_quota"
+}
 
-#### **Technical Integration:**
-- **Reuses 70% of existing infrastructure**
-- **Leverages existing Qdrant vector database**
-- **Extends current OpenAI client for TTS**
-- **Builds on proven FFmpeg video processing**
-- **Follows existing single-table database patterns**
+// Circuit breaker open
+{
+  "success": false,
+  "error": "Circuit breaker is OPEN for gemini - service temporarily unavailable",
+  "circuit_breaker_state": "open"
+}
 
-#### **New Database Table:**
-```sql
-CREATE TABLE generated_videos (
-    id UUID PRIMARY KEY,
-    title TEXT NOT NULL,
-    user_requirements TEXT NOT NULL,
-    compilation_script JSONB NOT NULL,
-    source_video_ids TEXT[],
-    video_base64 TEXT NOT NULL,
-    duration FLOAT NOT NULL,
-    generation_metadata JSONB,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+// Temporary rate limit (with retry)
+{
+  "success": false,
+  "error": "Rate limit exceeded for openai: requests_per_minute",
+  "retry_after": 45,
+  "message": "Retrying automatically..."
+}
 ```
 
-#### **Performance Targets:**
-- **Total Pipeline**: < 2 minutes for 5-minute generated video
-- **Content Discovery**: < 5 seconds using existing vector search
-- **Audio Generation**: < 30 seconds using OpenAI TTS
-- **Video Composition**: < 60 seconds using optimized FFmpeg
+#### **Files Added/Modified:**
+- **NEW**: `app/ai_rate_limiter.py` - Complete rate limiting implementation
+- **UPDATED**: `app/ai_scene_analysis.py` - Integrated rate limiting into API calls
+- **UPDATED**: `app/main.py` - Added `/rate-limits` monitoring endpoint
+- **UPDATED**: `README.md` - Comprehensive rate limiting documentation
 
-#### **Use Cases:**
-- **Fitness Routines**: Auto-generate workout videos from exercise library
-- **Educational Content**: Compile instructional videos from existing material
-- **Content Repurposing**: Create highlight reels and themed compilations
-- **Personalized Training**: Custom videos based on user skill level and goals
+#### **Impact:**
+- ✅ **Reliability**: No more "daily quota exceeded" crashes
+- ✅ **Cost Management**: Intelligent usage tracking and limits
+- ✅ **User Experience**: Graceful handling of API limits
+- ✅ **Monitoring**: Real-time visibility into API usage
+- ✅ **Auto-Recovery**: Self-healing when services recover
+- ✅ **Provider Flexibility**: Easy switching between OpenAI/Gemini
 
-#### **Benefits:**
-- **Efficient Development**: Builds on proven Gilgamesh architecture
-- **Cost-Effective**: Optimizes AI credits through smart content reuse
-- **High Quality**: Professional narration with synchronized video content
-- **Scalable**: Designed for production workloads with existing infrastructure
+#### **Next Steps for Users:**
+1. **Monitor Usage**: Use `/rate-limits` endpoint to track API consumption
+2. **Configure Limits**: Adjust limits in code for your API tier
+3. **Set Alerts**: Monitor circuit breaker states for service health
+4. **Plan Capacity**: Use daily quota tracking for usage planning
 
-#### **Implementation Plan:**
-- **Phase 1**: Foundation (Requirements + Vector Search)
-- **Phase 2**: Audio Pipeline (OpenAI TTS Integration)  
-- **Phase 3**: Video Processing (Extraction + Composition)
-- **Phase 4**: API Integration (Endpoints + Validation)
-- **Phase 5**: Optimization (Performance + Quality)
+---
 
-#### **Documentation:**
-- **Complete Technical Specification**: [AI_VIDEO_COMPILATION_PIPELINE.md](AI_VIDEO_COMPILATION_PIPELINE.md)
-- **Architectural Diagrams**: Mermaid flowcharts for pipeline visualization
-- **Integration Points**: Detailed reuse of existing components
-- **Performance Benchmarks**: Target metrics for each pipeline stage
+## CRITICAL BUG FIX: Division by Zero Error Resolution - 2024-12-23 🚨
 
-**Status**: ⏳ **PLANNED** - Comprehensive technical specification complete, ready for implementation
+### 🐛 **FIXED: Division by Zero Error in API Processing**
+
+**Resolved the "division by zero" error that was causing 500 server errors during video processing.**
+
+#### **Root Cause Analysis:**
+The error was occurring in multiple locations where mathematical operations didn't handle edge cases:
+
+1. **Scene Detection (`app/scene_detection.py`, line 228)**:
+   ```python
+   # BEFORE (causing division by zero)
+   frame_timestamp = start_time + (frame_idx / (len(scene_frames) - 1)) * scene_duration
+   
+   # AFTER (safe division)
+   if len(scene_frames) <= 1:
+       frame_timestamp = start_time + (scene_duration / 2)  # Use middle of scene
+   else:
+       frame_timestamp = start_time + (frame_idx / (len(scene_frames) - 1)) * scene_duration
+   ```
+
+2. **Video Looping (`app/stitch_scenes.py`, line 52)**:
+   ```python
+   # BEFORE (causing division by zero)
+   loops = int(target_duration / video_duration) + 1
+   
+   # AFTER (safe division)
+   if video_duration <= 0:
+       raise ValueError(f"Video has invalid duration: {video_duration}")
+   loops = int(target_duration / video_duration) + 1
+   ```
+
+#### **Complete Fixes Implemented:**
+
+**1. Scene Detection Division by Zero Fix** ✅
+- **Problem**: When extracting only 1 frame from a scene, `len(scene_frames) - 1` became 0
+- **Solution**: Added check for single frame case, uses middle of scene timestamp
+- **Impact**: Prevents crashes when processing very short video segments
+
+**2. Video Duration Error Handling** ✅
+- **Problem**: `get_video_duration()` could return 0 or invalid values for corrupted videos
+- **Solution**: Enhanced error handling with proper validation
+- **Files Updated**: `app/stitch_scenes.py` and `app/scene_detection.py`
+
+**3. Enhanced Duration Validation** ✅
+```python
+# New robust duration checking
+def get_video_duration(video_path: str) -> float:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        duration_str = result.stdout.strip()
+        if not duration_str:
+            raise ValueError(f"No duration found for video: {video_path}")
+        duration = float(duration_str)
+        if duration <= 0:
+            raise ValueError(f"Invalid duration for video: {duration}")
+        return duration
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Failed to get video duration for {video_path}: {e.stderr}")
+```
+
+**4. Audio Duration Validation** ✅
+- **Same robust error handling** applied to `get_audio_duration()`
+- **Prevents division by zero** in audio processing
+- **Clear error messages** for debugging
+
+#### **Error Prevention Strategy:**
+- **Input Validation**: All duration values checked before mathematical operations
+- **Edge Case Handling**: Special handling for single frames and zero durations
+- **Descriptive Errors**: Clear error messages for debugging corrupted media files
+- **Graceful Degradation**: Systems continue operating when possible
+
+#### **Testing Recommendations:**
+```bash
+# Test with potentially problematic videos
+curl -X POST "http://localhost:8500/process" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/very-short-video", "transcribe": true}'
+
+# Test with various video formats and lengths
+curl -X POST "http://localhost:8500/process" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/single-frame-video", "describe": true}'
+```
+
+#### **Impact:**
+- ✅ **API Stability**: No more 500 errors from division by zero
+- ✅ **Video Processing**: Handles edge cases like single-frame scenes
+- ✅ **Error Reporting**: Clear error messages for debugging
+- ✅ **Robustness**: Graceful handling of corrupted or invalid media files
+- ✅ **User Experience**: Reliable processing without unexpected crashes
+
+---
+
+## README Update: Qdrant Force Index Endpoint Documentation - 2024-12-23 📖
+
+### 📚 **DOCUMENTATION UPDATE: Added `/qdrant/force-index` Endpoint Details**
+
+**Enhanced README.md with comprehensive documentation for the new Qdrant indexing endpoint.**
+
+#### **Documentation Added:**
+- **Complete endpoint documentation** for `POST /qdrant/force-index`
+- **Request/response examples** with multiple use cases
+- **Parameter explanations** for `collections` and `force_rebuild` options
+- **Practical examples** showing default collections and custom configurations
+- **Key features breakdown** explaining automatic collection selection and smart indexing
+- **Use case guidance** for troubleshooting and pipeline optimization
+
+#### **New Documentation Section:**
+```markdown
+#### Force Qdrant Indexing:
+
+**`POST /qdrant/force-index`** - Force indexing of Qdrant collections for AI video compilation pipeline.
+
+**Use Case:** When you have vectors in Qdrant collections but aren't indexed yet, preventing efficient search operations.
+```
+
+#### **Examples Added:**
+- **Default collections indexing**: Empty request body uses AI video compilation collections
+- **Specific collections**: Target individual collections for indexing
+- **Force rebuild**: Complete index recreation option
+- **Mixed configurations**: Combine collection selection with rebuild options
+
+#### **Response Documentation:**
+- **Detailed response structure** with before/after statistics
+- **Success/failure indicators** for each collection
+- **Next steps guidance** for testing and verification
+- **Error handling examples** for missing collections
+
+#### **Perfect for:**
+- **Developers** implementing AI video compilation pipeline
+- **Troubleshooting** vector search issues after bulk vectorization
+- **Operations** optimizing Qdrant performance for large datasets
+- **Integration** ensuring search functionality works correctly
+
+#### **Impact:**
+- ✅ **Clear endpoint usage** - Developers understand how to use the new indexing endpoint
+- ✅ **Troubleshooting guide** - Documentation helps resolve common indexing issues
+- ✅ **Pipeline readiness** - AI video compilation teams have complete endpoint reference
+- ✅ **Integration support** - Full request/response examples for implementation
+
+---
+
+## Qdrant Search Fix & AI Video Compilation Ready - 2024-12-23 ✅
+
+### 🔍 **MAJOR FIX: Qdrant Vector Search Now Working for AI Video Compilation**
+
+**Fixed the core issue preventing AI video compilation pipeline from retrieving content from Qdrant.**
+
+#### **Problem Identified:**
+- **Qdrant collections had content** (65 transcript + 31 scene vectors = 96 total)
+- **But indexed_vectors_count was 0** - vectors existed but weren't indexed
+- **Search endpoint used PostgreSQL text search** instead of Qdrant vector search
+
+#### **Solutions Implemented:**
+
+**1. New Qdrant Indexing Endpoint** ✅
+- **`POST /qdrant/force-index`** - Forces indexing of AI video compilation collections
+- **Automatic indexing** of `video_transcript_segments` and `video_scene_descriptions`
+- **Before/after reporting** with indexing statistics
+- **Force rebuild option** for complete index recreation
+
+```bash
+# Force indexing for AI video compilation
+curl -X POST "http://localhost:8500/qdrant/force-index" \
+  -H "Content-Type: application/json" \
+  -d '{"collections": null, "force_rebuild": false}'
+```
+
+**Results:**
+- ✅ `video_transcript_segments`: 0 → 65 indexed vectors
+- ✅ `video_scene_descriptions`: 0 → 31 indexed vectors  
+- ✅ **96 total vectors now searchable**
+
+**2. Search Engine Conversion** ✅
+- **Converted `/search` endpoint** from PostgreSQL text search to Qdrant vector search
+- **OpenAI embeddings integration** for semantic search
+- **Dual collection search** across transcript segments and scene descriptions
+- **Relevance scoring** with configurable threshold (0.3 minimum)
+- **Fallback mechanism** to PostgreSQL if Qdrant unavailable
+
+**3. Enhanced Search Results** ✅
+- **Vector relevance scores** (0.3-0.5 range for good matches)
+- **Matched text snippets** showing what content triggered the match
+- **Match type identification** (transcript_segment vs scene_description)
+- **Full video metadata** with search context
+- **Duplicate removal** by video_id with best score selection
+
+#### **Verification Results:**
+```bash
+# Test search now returns 5 relevant results for "exercise"
+curl "http://localhost:8500/search?q=exercise&limit=5"
+
+# Results: Pull-ups (0.45), Farmers Walk (0.40), Kettlebell (0.38), Squats (0.37, 0.34)
+```
+
+#### **Impact for AI Video Compilation:**
+- ✅ **Content retrieval now works** - Can find exercise videos by semantic meaning
+- ✅ **AI requirements generator ready** - Search queries will return relevant content  
+- ✅ **Script generation ready** - Can match user requirements to actual video content
+- ✅ **Pipeline foundation complete** - Ready for video segment extraction and composition
+
+#### **New Capabilities:**
+- **Semantic exercise search**: "workout", "strength training", "mobility" all return relevant videos
+- **Content-aware queries**: AI can generate search terms that match actual video content
+- **Cross-modal search**: Search across both speech (transcripts) and visual (scene descriptions)
+- **Quality scoring**: Relevance scores help prioritize best content matches
+
+#### **Technical Details:**
+- **Vector dimension**: 1536 (OpenAI text-embedding-3-small)
+- **Search threshold**: 0.3 minimum relevance score
+- **Collections**: `video_transcript_segments`, `video_scene_descriptions`
+- **Indexing method**: Optimizer threshold adjustment (20000 → 1 → 20000)
+- **Search method**: Dual collection query with deduplication
+
+**Next Steps**: AI video compilation pipeline can now proceed to video segment extraction and composition phases.
 
 ---
 

@@ -13,6 +13,7 @@ from typing import List, Dict, Optional
 from openai import AsyncOpenAI
 import aiofiles
 from dotenv import load_dotenv
+from app.ai_rate_limiter import get_rate_limiter, RateLimitType
 
 # Load environment variables from .env file
 load_dotenv()
@@ -285,10 +286,21 @@ Respond in JSON format:
     "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
 }}"""
         
-        # Make the API call
-        response = await asyncio.to_thread(
-            model.generate_content,
-            [prompt] + image_parts
+        # Make the API call with rate limiting
+        rate_limiter = get_rate_limiter("gemini")
+        
+        # Estimate tokens for this request (base + image tokens)
+        estimated_tokens = 1000 + (len(image_parts) * 1500)  # ~1500 tokens per image for Gemini
+        
+        async def make_gemini_call():
+            return await asyncio.to_thread(
+                model.generate_content,
+                [prompt] + image_parts
+            )
+        
+        response = await rate_limiter.execute_with_rate_limiting(
+            make_gemini_call,
+            estimated_tokens=estimated_tokens
         )
         
         # Parse the response
@@ -508,13 +520,24 @@ Respond in this exact JSON format:
                 "text": f"Frame {i+1}: {frame['type'].upper()} position at {frame['timestamp']:.2f}s"
             })
         
-        # Call GPT-4 Vision API
+        # Call GPT-4 Vision API with rate limiting
         openai_client = get_openai_client()
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            max_tokens=500,
-            temperature=0.1
+        rate_limiter = get_rate_limiter("openai")
+        
+        # Estimate tokens for this request (base + image tokens)
+        estimated_tokens = 1000 + (len(encoded_frames) * 2000)  # ~2000 tokens per image
+        
+        async def make_openai_call():
+            return await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=500,
+                temperature=0.1
+            )
+        
+        response = await rate_limiter.execute_with_rate_limiting(
+            make_openai_call,
+            estimated_tokens=estimated_tokens
         )
         
         # Parse the response

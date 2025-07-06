@@ -550,10 +550,109 @@ class SimpleVideoDatabase:
             return None
 
     async def search_videos(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search videos by content."""
+        """Search videos by content using Qdrant vector search."""
         if not await self._ensure_connection():
             return []
         
+        try:
+            # Try vector search first if Qdrant is available
+            if self.connections and self.connections.qdrant_client and self.connections.openai_client:
+                return await self._search_videos_vector(query, limit)
+            else:
+                # Fallback to PostgreSQL text search
+                return await self._search_videos_text(query, limit)
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to search videos: {e}")
+            # Fallback to text search if vector search fails
+            return await self._search_videos_text(query, limit)
+    
+    async def _search_videos_vector(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search videos using Qdrant vector search."""
+        try:
+            # Generate embedding for search query
+            embedding = await self.connections.generate_embedding(query)
+            if not embedding:
+                logger.warning("Failed to generate embedding, falling back to text search")
+                return await self._search_videos_text(query, limit)
+            
+            # Search both collections
+            collections = ["video_transcript_segments", "video_scene_descriptions"]
+            all_results = []
+            
+            for collection_name in collections:
+                try:
+                    results = self.connections.qdrant_client.search(
+                        collection_name=collection_name,
+                        query_vector=embedding,
+                        limit=limit,
+                        score_threshold=0.3,  # Minimum relevance score
+                        with_payload=True
+                    )
+                    
+                    for result in results:
+                        payload = result.payload
+                        video_id = payload.get("video_id")
+                        
+                        # Skip if no video_id
+                        if not video_id:
+                            continue
+                        
+                        all_results.append({
+                            "video_id": video_id,
+                            "score": float(result.score),
+                            "collection": collection_name,
+                            "text": payload.get("text", payload.get("description", "")),
+                            "type": payload.get("type", "unknown"),
+                            "url": payload.get("url", ""),
+                            "carousel_index": payload.get("carousel_index", 0),
+                            "created_at": payload.get("created_at", "")
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"Search failed for collection {collection_name}: {e}")
+                    continue
+            
+            # Remove duplicates and sort by score
+            unique_videos = {}
+            for result in all_results:
+                video_id = result["video_id"]
+                if video_id not in unique_videos or result["score"] > unique_videos[video_id]["score"]:
+                    unique_videos[video_id] = result
+            
+            # Sort by relevance score (highest first)
+            sorted_results = sorted(unique_videos.values(), key=lambda x: x["score"], reverse=True)
+            
+            # Limit results
+            limited_results = sorted_results[:limit]
+            
+            # Get full video metadata from PostgreSQL for the matched videos
+            final_results = []
+            for result in limited_results:
+                video_id = result["video_id"]
+                
+                # Get full video data from PostgreSQL
+                video_data = await self.get_video(video_id, include_base64=False)
+                
+                if video_data:
+                    # Add search relevance info
+                    video_data.update({
+                        "search_score": result["score"],
+                        "matched_text": result["text"][:200],
+                        "match_type": result["type"],
+                        "collection": result["collection"]
+                    })
+                    final_results.append(video_data)
+            
+            logger.info(f"✅ Vector search found {len(final_results)} videos for query: '{query}'")
+            return final_results
+            
+        except Exception as e:
+            logger.error(f"❌ Vector search failed: {e}")
+            return await self._search_videos_text(query, limit)
+    
+    async def _search_videos_text(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Fallback PostgreSQL text search."""
         try:
             conn = await self.connections.pg_pool.acquire()
             try:
@@ -580,7 +679,8 @@ class SimpleVideoDatabase:
                         "carousel_index": row["carousel_index"],
                         "tags": row["tags"] or [],
                         "first_description": row["first_description"],
-                        "created_at": row["created_at"].isoformat()
+                        "created_at": row["created_at"].isoformat(),
+                        "search_method": "text"
                     }
                     for row in results
                 ]
@@ -588,7 +688,7 @@ class SimpleVideoDatabase:
                 await self.connections.pg_pool.release(conn)
                 
         except Exception as e:
-            logger.error(f"❌ Failed to search videos: {e}")
+            logger.error(f"❌ Text search failed: {e}")
             return []
     
     async def list_recent_videos(self, limit: int = 20) -> List[Dict[str, Any]]:
