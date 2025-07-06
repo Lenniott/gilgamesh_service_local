@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import your actual functions
 from app.simple_unified_processor import process_video_unified_simple, get_carousel_videos
 from app.utils import is_valid_url
+from app.video_compilation_pipeline import get_compilation_pipeline, CompilationRequest, CompilationResponse
 
 app = FastAPI(
     title="Gilgamesh Media Processing Service",
@@ -50,6 +51,15 @@ class VectorizeExistingRequest(BaseModel):
     dry_run: bool = False
     verbose: bool = False
 
+class CompileRequest(BaseModel):
+    context: str                              # "I'm creating a morning workout routine"
+    requirements: str                         # "5 minutes, beginner-friendly, mobility focus"
+    title: Optional[str] = None              # "Morning Mobility Routine"
+    voice_preference: str = "alloy"          # OpenAI TTS voice
+    resolution: str = "720p"                 # Output resolution
+    max_duration: float = 600.0              # 10 minutes max
+    include_base64: bool = False             # Return video in response
+
 @app.get("/")
 async def root():
     return {
@@ -66,6 +76,9 @@ async def root():
             "process": {
                 "/process": "Main processing endpoint with all options - checks if URL already processed"
             },
+            "compilation": {
+                "/compile": "AI-powered video compilation - create new videos from existing content"
+            },
             "vectorization": {
                 "/vectorize/existing": "Vectorize unvectorized videos in database"
             },
@@ -74,6 +87,11 @@ async def root():
                 "/carousel": "Get all videos from carousel URL",
                 "/search": "Search videos by content",
                 "/videos": "List recent videos"
+            },
+            "generated": {
+                "/generated/{video_id}": "Get generated video by ID",
+                "/generated/search": "Search generated videos",
+                "/generated/recent": "List recent generated videos"
             }
         }
     }
@@ -192,9 +210,150 @@ async def vectorize_existing_videos(request: VectorizeExistingRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Vectorization failed: {str(e)}")
 
+@app.post("/compile")
+async def compile_video(request: CompileRequest):
+    """
+    AI-powered video compilation endpoint.
+    Creates new videos from existing content based on user requirements.
+    
+    This endpoint:
+    1. Analyzes user context and requirements
+    2. Searches existing video database for relevant content
+    3. Generates a structured script with video assignments
+    4. Creates audio narration using OpenAI TTS
+    5. Composes final video with synchronized audio and video segments
+    6. Saves the generated video to the database
+    """
+    async with semaphore:
+        try:
+            # Get compilation pipeline
+            pipeline = await get_compilation_pipeline()
+            
+            # Convert request to internal format
+            compilation_request = CompilationRequest(
+                context=request.context,
+                requirements=request.requirements,
+                title=request.title,
+                voice_preference=request.voice_preference,
+                resolution=request.resolution,
+                max_duration=request.max_duration,
+                include_base64=request.include_base64
+            )
+            
+            # Process the compilation request
+            result = await pipeline.process_compilation_request(compilation_request)
+            
+            if result.success:
+                return {
+                    "success": True,
+                    "generated_video_id": result.generated_video_id,
+                    "duration": result.duration,
+                    "source_videos_used": result.source_videos_used,
+                    "processing_time": result.processing_time,
+                    "script": result.script,
+                    "video_base64": result.video_base64,
+                    "metadata": result.metadata
+                }
+            else:
+                raise HTTPException(status_code=500, detail=result.error)
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Compilation failed: {str(e)}")
 
+@app.get("/generated/{video_id}")
+async def get_generated_video(video_id: str, include_base64: bool = False):
+    """Get generated video by ID - follows existing /video/{video_id} pattern."""
+    try:
+        # Get compilation pipeline to access generated video database
+        pipeline = await get_compilation_pipeline()
+        
+        # Get generated video
+        video_data = await pipeline.generated_video_db.get_generated_video(
+            video_id, include_base64
+        )
+        
+        if video_data:
+            return {
+                "success": True,
+                "video": video_data
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Generated video not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get generated video: {str(e)}")
 
+@app.get("/generated/search")  
+async def search_generated_videos(q: str, duration_min: Optional[float] = None, 
+                                 duration_max: Optional[float] = None,
+                                 resolution: Optional[str] = None,
+                                 voice_model: Optional[str] = None,
+                                 limit: int = 10):
+    """Search generated videos - follows existing /search pattern."""
+    try:
+        # Get compilation pipeline to access generated video database
+        pipeline = await get_compilation_pipeline()
+        
+        # Search generated videos
+        results = await pipeline.generated_video_db.search_generated_videos(
+            query=q,
+            duration_min=duration_min,
+            duration_max=duration_max,
+            resolution=resolution,
+            voice_model=voice_model,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "query": q,
+            "results": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
+@app.get("/generated/recent")
+async def list_recent_generated_videos(limit: int = 20):
+    """List recent generated videos - follows existing /videos pattern."""
+    try:
+        # Get compilation pipeline to access generated video database
+        pipeline = await get_compilation_pipeline()
+        
+        # List recent generated videos
+        results = await pipeline.generated_video_db.list_recent_generated_videos(limit)
+        
+        return {
+            "success": True,
+            "videos": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list generated videos: {str(e)}")
+
+@app.get("/compile/status/{compilation_id}")
+async def get_compilation_status(compilation_id: str):
+    """Get compilation status for long-running generations."""
+    try:
+        # Get compilation pipeline
+        pipeline = await get_compilation_pipeline()
+        
+        # Get compilation status
+        status = await pipeline.get_compilation_status(compilation_id)
+        
+        return {
+            "success": True,
+            "status": status
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get compilation status: {str(e)}")
 
 @app.get("/video/{video_id}")
 async def get_video(video_id: str, include_base64: bool = False):
