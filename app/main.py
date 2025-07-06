@@ -252,12 +252,8 @@ async def vectorize_existing_videos(request: VectorizeExistingRequest):
             import sys
             import os
             
-            # Add the project root to Python path to import the script
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if project_root not in sys.path:
-                sys.path.append(project_root)
-            
-            from vectorize_existing_videos import VectorizeExistingVideos
+            # Import the vectorization class from the app module
+            from app.vectorization import VectorizeExistingVideos
             
             # Create vectorizer instance
             vectorizer = VectorizeExistingVideos()
