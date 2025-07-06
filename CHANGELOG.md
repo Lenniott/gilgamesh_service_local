@@ -1,5 +1,151 @@
 # CHANGELOG
 
+## [2.2.12] - 2024-12-23 - Raw Transcript Support
+
+### 🎯 **NEW FEATURE: Raw Transcript Parameter**
+
+**Added `raw_transcript` parameter to return clean text without timestamps.**
+
+#### **New Parameter:**
+- **`raw_transcript: bool = False`**: Returns raw text without timestamps in addition to timestamped segments
+- **API Response**: Adds `raw_transcript` field to results when enabled
+- **Backward Compatible**: Default is `false`, doesn't break existing usage
+
+#### **Usage:**
+```json
+{
+  "url": "https://www.instagram.com/reel/...",
+  "transcribe": true,
+  "raw_transcript": true,
+  "save_video": false,
+  "save_to_postgres": false,
+  "save_to_qdrant": false
+}
+```
+
+#### **Response:**
+```json
+{
+  "success": true,
+  "videos": [
+    {
+      "results": {
+        "transcript_data": [...],  // Timestamped segments
+        "raw_transcript": "This is the complete transcript as clean text..."  // NEW
+      }
+    }
+  ]
+}
+```
+
+#### **Benefits:**
+- **Flexible Output**: Choose timestamped segments OR raw text OR both
+- **Clean Text**: Automatically strips timestamps and joins segments
+- **API Native**: Built into the response structure, no post-processing needed
+- **Use Cases**: Simple text extraction, content analysis, copy-paste workflows
+
+## [2.2.11] - 2024-12-23 - API Simplification & Critical Bug Fix
+
+### 🎯 **SIMPLIFIED API: Single Processing Endpoint**
+
+**Consolidated multiple confusing endpoints into one clean `/process` endpoint.**
+
+#### **Problem Solved:**
+- **Fixed**: `KeyError: 'database'` in processing when videos already existed in database
+- **Simplified**: Removed 5 confusing endpoints, replaced with 1 clean endpoint
+- **Enhanced**: Automatic URL checking to save AI credits
+
+#### **Changes:**
+- **Removed confusing endpoints**: `/process/simple`, `/process/full`, `/process/transcript-only`, `/process/qdrant-only`, `/process/carousel`
+- **Added single endpoint**: `/process` with all parameters
+- **Automatic URL checking**: Always checks if URL was already processed to save AI credits
+- **Fixed database KeyError**: Added missing `"database"` key in skip processing case
+
+#### **New Single Endpoint:**
+```bash
+POST /process
+```
+
+**Request:**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "save_video": true,
+  "transcribe": true, 
+  "describe": true,
+  "save_to_postgres": true,
+  "save_to_qdrant": true,
+  "include_base64": false
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Video processing completed successfully",
+  "url": "https://www.instagram.com/p/...",
+  "carousel_info": {
+    "is_carousel": false,
+    "total_videos": 1,
+    "processed_videos": 1
+  },
+  "processing": {
+    "download": true,
+    "total_videos_processed": 1,
+    "ai_credits_saved_count": 0,
+    "database_operations": {
+      "postgres_enabled": true,
+      "qdrant_enabled": true,
+      "postgres_saves": 1,
+      "qdrant_saves": 1
+    }
+  },
+  "videos": [
+    {
+      "carousel_index": 0,
+      "video_id": "uuid-here",
+      "processing": {
+        "transcription": true,
+        "scene_analysis": true,
+        "used_existing_data": false,
+        "ai_credits_saved": false
+      },
+      "results": {
+        "transcript_data": [...],
+        "scenes_data": [...],
+        "tags": [...]
+      },
+      "database": {
+        "postgres_saved": true,
+        "qdrant_saved": true,
+        "video_stored": true
+      }
+    }
+  ],
+  "video_ids": ["uuid-here"]
+}
+```
+
+#### **Bug Fix Details:**
+- **Root Cause**: Skip processing case was missing `"database"` key in response structure
+- **Error**: `KeyError: 'database'` at line 476 when counting database operations
+- **Fix**: Added missing `"database"` key with proper structure
+- **Impact**: No more 500 errors when processing existing videos
+
+#### **Benefits:**
+- **Simpler API**: One endpoint instead of five confusing ones
+- **Automatic optimization**: Always checks existing data to save AI credits
+- **Full control**: All parameters available for customization
+- **Consistent**: Same response format regardless of processing path
+- **Fixed bug**: No more `KeyError: 'database'` errors
+- **Backward compatible**: All existing functionality preserved
+
+#### **Documentation:**
+- **Added**: [PROJECT_VISION.md](PROJECT_VISION.md) - Comprehensive vision document
+- **Purpose**: Define system boundaries, prevent scope creep, guide development
+- **Content**: Architecture, API specs, data models, performance targets, roadmap
+
 ## [2.2.9] - 2024-12-23 - Individual Vector Points & Granular Search
 
 ### 🎯 **REVOLUTIONARY: Individual Vector Points for Precise Search**

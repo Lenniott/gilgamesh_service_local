@@ -131,6 +131,11 @@ async def process_video_unified_simple(
                                     "transcript_data": existing_video.get('transcript'),
                                     "scenes_data": existing_video.get('descriptions'),
                                     "tags": existing_video.get('tags', [])
+                                },
+                                "database": {
+                                    "postgres_saved": True,
+                                    "qdrant_saved": False,  # We'd need to check Qdrant too
+                                    "video_stored": has_video
                                 }
                             })
                             all_video_ids.append(existing_video["id"])

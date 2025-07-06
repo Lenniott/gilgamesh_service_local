@@ -2,6 +2,8 @@
 
 A FastAPI-based service that processes social media content (Instagram posts, reels, and YouTube videos) with AI-powered scene analysis and transcript integration. **Now supports Instagram carousels with multiple videos!** The service provides a unified API for downloading, processing, and analyzing content with smart AI credit management.
 
+**Latest Version: 2.2.12** - Now with raw transcript support!
+
 ## Features
 
 - **Multi-Platform Support**
@@ -136,16 +138,30 @@ Both providers use enhanced prompts that include:
 
 **Single Video:**
 ```bash
-curl -X POST "http://localhost:8500/process/full" \
+curl -X POST "http://localhost:8500/process" \
      -H "Content-Type: application/json" \
-     -d '{"url": "https://www.instagram.com/p/YOUR_POST_ID/"}'
+     -d '{
+       "url": "https://www.instagram.com/p/YOUR_POST_ID/",
+       "save_video": true,
+       "transcribe": true,
+       "describe": true,
+       "save_to_postgres": true,
+       "save_to_qdrant": true
+     }'
 ```
 
 **Instagram Carousel (Multiple Videos):**
 ```bash
-curl -X POST "http://localhost:8500/process/full" \
+curl -X POST "http://localhost:8500/process" \
      -H "Content-Type: application/json" \
-     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+     -d '{
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save_video": true,
+       "transcribe": true,
+       "describe": true,
+       "save_to_postgres": true,
+       "save_to_qdrant": true
+     }'
 ```
 
 **Carousel Response:**
@@ -184,13 +200,65 @@ curl -X POST "http://localhost:8500/process/full" \
 
 **Perfect for:** Content archival, complete video analysis, building video libraries, **carousel content processing**.
 
+### 3. Raw Transcript Response Format (NEW)
+
+When using `"raw_transcript": true`, the API returns both timestamped segments and clean raw text:
+
+```json
+{
+  "success": true,
+  "videos": [
+    {
+      "results": {
+        "transcript_data": [
+          {"start": 0.0, "end": 4.6, "text": "This is the one prompt that changed..."},
+          {"start": 4.6, "end": 10.16, "text": "I built an AI boardroom with Steve Jobs..."}
+        ],
+        "raw_transcript": "This is the one prompt that changed how I run my business forever. I built an AI boardroom with Steve Jobs, Alex Hormosi and Seth Goedin in it, and it actually works..."
+      }
+    }
+  ]
+}
+```
+
+**Benefits:**
+- **Flexible Output**: Get both timestamped segments AND clean text
+- **No Post-Processing**: Raw text ready for copy-paste or analysis
+- **Backward Compatible**: Existing `transcript_data` format unchanged
+- **API Native**: Built into response structure
+
+**Perfect for:** Content extraction, text analysis, copy-paste workflows, content repurposing.
+
 ### 2. Raw Transcript Only (No Storage)
 **Use Case:** Extract transcript data without any database storage or scene analysis.
 
+**Timestamped Transcript:**
 ```bash
-curl -X POST "http://localhost:8500/process/transcript-only" \
+curl -X POST "http://localhost:8500/process" \
      -H "Content-Type: application/json" \
-     -d '{"url": "https://www.instagram.com/p/DLPa9I7sU9Y/"}'
+     -d '{
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save_video": false,
+       "transcribe": true,
+       "describe": false,
+       "save_to_postgres": false,
+       "save_to_qdrant": false
+     }'
+```
+
+**Raw Text Transcript (NEW):**
+```bash
+curl -X POST "http://localhost:8500/process" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "url": "https://www.instagram.com/p/DLPa9I7sU9Y/",
+       "save_video": false,
+       "transcribe": true,
+       "describe": false,
+       "save_to_postgres": false,
+       "save_to_qdrant": false,
+       "raw_transcript": true
+     }'
 ```
 
 **Carousel Transcript Response:**
@@ -306,17 +374,50 @@ curl "http://localhost:8500/carousel?url=https://www.instagram.com/p/DLPa9I7sU9Y
 
 ## API Endpoints
 
+### 🎯 **Main Processing Endpoint**
+
+We've simplified the API to a single, powerful endpoint with full parameter control:
+
+#### **`POST /process`** ✅ **RECOMMENDED**
+
+**Complete parameter control with automatic URL checking and AI credit optimization.**
+
+**Request Body:**
+```json
+{
+  "url": "https://www.instagram.com/p/...",
+  "save_video": true,         // Save video file to database
+  "transcribe": true,         // Generate transcript
+  "describe": true,           // Generate AI scene descriptions  
+  "save_to_postgres": true,   // Save to PostgreSQL database
+  "save_to_qdrant": true,     // Save to Qdrant vector database
+  "include_base64": false,    // Include video base64 in response
+  "raw_transcript": false     // NEW: Return clean text without timestamps
+}
+```
+
+**Key Features:**
+- **Automatic URL Checking**: Detects already-processed videos to save AI credits
+- **Carousel Support**: Automatically processes all videos in Instagram carousels
+- **Flexible Control**: Enable/disable any feature independently
+- **Clean Boolean API**: All parameters are `true`/`false` (no confusing strings)
+- **Raw Transcript Support**: Get clean text output with `raw_transcript: true`
+- **Smart Processing**: Only processes missing data to optimize costs
+
 ### 🚨 Quick Reference - Recommended Endpoints
 
 **For most use cases, use these endpoints:**
 
-| Endpoint | Use Case | Request Body |
-|----------|----------|--------------|
-| `/process/simple` | **Flexible processing** | `{"url": "...", "save_video": true, "transcribe": true, "describe": true, "save_to_postgres": true, "save_to_qdrant": true}` |
-| `/process/full` | **Complete processing** | `{"url": "..."}` |
-| `/process/transcript-only` | **Transcript only** | `{"url": "..."}` |
+| Endpoint | Use Case | Transcribe Parameter | Request Body |
+|----------|----------|---------------------|--------------|
+| `/process/simple` | **Flexible control** | `transcribe: boolean` | `{"url": "...", "save_video": true, "transcribe": true, "describe": true}` |
+| `/process/full` | **Everything automatic** | N/A (auto-enabled) | `{"url": "..."}` |
+| `/process/transcript-only` | **Transcript only** | N/A (auto-enabled) | `{"url": "..."}` |
+| `/process/unified` | **Legacy endpoint** | `transcribe: "raw" \| "timestamp" \| null` | `{"url": "...", "transcribe": "raw", "describe": false}` |
 
-**⚠️ Common Error:** Don't use `/process/unified` unless you understand the legacy string parameters!
+**⚠️ Key Differences:**
+- **`/process/simple`**: Uses **boolean** values (`true`/`false`) - RECOMMENDED
+- **`/process/unified`**: Uses **string** values (`"raw"`/`"timestamp"`/`null`) - LEGACY
 
 ### Core Processing Endpoints
 
@@ -375,7 +476,7 @@ POST /process/qdrant-only
 
 ### Flexible Processing Endpoints
 
-#### `/process/simple` - Configurable Processing
+#### `/process/simple` - Configurable Processing ✅ RECOMMENDED
 ```bash
 POST /process/simple
 ```
@@ -384,18 +485,21 @@ POST /process/simple
 ```json
 {
     "url": "https://www.instagram.com/p/...",
-    "save_video": true,         // Save video base64 to database
-    "transcribe": true,         // Generate transcript
-    "describe": true,           // Generate AI scene descriptions
-    "save_to_postgres": true,   // Save to PostgreSQL database
-    "save_to_qdrant": true,     // Save to Qdrant vector database (requires OpenAI)
-    "include_base64": false     // Include base64 in response (large!)
+    "save_video": true,         // boolean: Save video base64 to database
+    "transcribe": true,         // boolean: Generate transcript (NOT "raw"/"timestamp")
+    "describe": true,           // boolean: Generate AI scene descriptions
+    "save_to_postgres": true,   // boolean: Save to PostgreSQL database
+    "save_to_qdrant": true,     // boolean: Save to Qdrant vector database
+    "include_base64": false     // boolean: Include base64 in response (large!)
 }
 ```
 
-**Database Control:** ✅ Independent control over PostgreSQL and Qdrant storage
-**Carousel Support:** ✅ All options apply to each video in carousel
-**Embedding:** Uses OpenAI for consistent vector embeddings
+**Key Features:**
+- **Clean Boolean API**: All parameters are `true`/`false` (no confusing strings)
+- **Maximum Flexibility**: Control every aspect of processing independently
+- **Database Control**: Independent control over PostgreSQL and Qdrant storage
+- **Carousel Support**: All options apply to each video in carousel
+- **Vector Embeddings**: Uses OpenAI for consistent embeddings when `save_to_qdrant: true`
 
 #### `/process/unified` - Legacy Advanced Processing ⚠️
 ```bash
@@ -538,11 +642,18 @@ The system automatically checks for existing data to avoid wasting AI credits:
 
 ### Parameter Type Reference
 
-| Endpoint | `transcribe` Type | `describe` Type | `save_video` Type | `save_to_postgres` Type | `save_to_qdrant` Type |
-|----------|------------------|-----------------|------------------|------------------------|---------------------|
-| `/process/simple` | `boolean` | `boolean` | `boolean` | `boolean` | `boolean` |
-| `/process/full` | N/A (auto) | N/A (auto) | N/A (auto) | N/A (auto) | N/A (auto) |
-| `/process/unified` | `string \| null` | `boolean` | `boolean` | `boolean` | `boolean` |
+| Endpoint | `transcribe` Type | `describe` Type | `save_video` Type | Notes |
+|----------|------------------|-----------------|------------------|-------|
+| `/process/simple` | `boolean` | `boolean` | `boolean` | ✅ **RECOMMENDED** - Clean boolean API |
+| `/process/full` | N/A (auto-enabled) | N/A (auto-enabled) | N/A (auto-enabled) | ✅ **SIMPLE** - No configuration needed |
+| `/process/transcript-only` | N/A (auto-enabled) | N/A (disabled) | N/A (disabled) | ✅ **FAST** - Transcript extraction only |
+| `/process/unified` | `"raw" \| "timestamp" \| null` | `boolean` | `boolean` | ⚠️ **LEGACY** - Mixed parameter types |
+
+**Why Different Endpoints?**
+- **`/process/simple`**: Maximum flexibility with clean boolean parameters
+- **`/process/full`**: Zero configuration - does everything automatically  
+- **`/process/transcript-only`**: Fast transcript extraction without storage
+- **`/process/unified`**: Legacy compatibility with string-based transcription modes
 
 ## Enhanced AI Scene Analysis
 
