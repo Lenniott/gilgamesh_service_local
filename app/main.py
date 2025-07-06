@@ -50,6 +50,10 @@ class VectorizeExistingRequest(BaseModel):
     dry_run: bool = False
     verbose: bool = False
 
+class QdrantIndexRequest(BaseModel):
+    collections: Optional[list] = None  # Specific collections to index, or None for default
+    force_rebuild: bool = False  # Whether to force full index rebuild
+
 @app.get("/")
 async def root():
     return {
@@ -67,7 +71,8 @@ async def root():
                 "/process": "Main processing endpoint with all options - checks if URL already processed"
             },
             "vectorization": {
-                "/vectorize/existing": "Vectorize unvectorized videos in database"
+                "/vectorize/existing": "Vectorize unvectorized videos in database",
+                "/qdrant/force-index": "Force indexing of Qdrant collections for AI video compilation"
             },
             "retrieval": {
                 "/video/{video_id}": "Get specific video by ID",
@@ -192,6 +197,128 @@ async def vectorize_existing_videos(request: VectorizeExistingRequest):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Vectorization failed: {str(e)}")
 
+@app.post("/qdrant/force-index")
+async def force_qdrant_indexing(request: QdrantIndexRequest):
+    """
+    Force indexing of Qdrant collections for AI video compilation pipeline.
+    
+    This endpoint triggers indexing for collections that have vectors but aren't indexed yet.
+    Primarily used for the AI video compilation pipeline collections:
+    - video_transcript_segments
+    - video_scene_descriptions
+    """
+    async with semaphore:
+        try:
+            from app.db_connections import DatabaseConnections
+            
+            # Initialize database connections
+            connections = DatabaseConnections()
+            await connections.connect_all()
+            
+            if not connections.qdrant_client:
+                raise HTTPException(status_code=503, detail="Qdrant client not available")
+            
+            # Default collections for AI video compilation
+            default_collections = ["video_transcript_segments", "video_scene_descriptions"]
+            target_collections = request.collections or default_collections
+            
+            results = {}
+            overall_success = True
+            
+            for collection_name in target_collections:
+                try:
+                    # Get collection status before indexing
+                    try:
+                        collection_info = connections.qdrant_client.get_collection(collection_name)
+                        points_before = collection_info.points_count
+                        indexed_before = getattr(collection_info, 'indexed_vectors_count', 0)
+                    except Exception:
+                        results[collection_name] = {
+                            "success": False,
+                            "error": f"Collection '{collection_name}' does not exist"
+                        }
+                        overall_success = False
+                        continue
+                    
+                    # Force indexing by updating collection optimization settings
+                    from qdrant_client.models import OptimizersConfigDiff
+                    
+                    if request.force_rebuild:
+                        # Force full index rebuild by temporarily changing optimization settings
+                        connections.qdrant_client.update_collection(
+                            collection_name=collection_name,
+                            optimizer_config=OptimizersConfigDiff(
+                                indexing_threshold=1  # Force immediate indexing
+                            )
+                        )
+                        
+                        # Wait a moment for the change to take effect
+                        await asyncio.sleep(1)
+                        
+                        # Restore default settings
+                        connections.qdrant_client.update_collection(
+                            collection_name=collection_name,
+                            optimizer_config=OptimizersConfigDiff(
+                                indexing_threshold=20000  # Back to default
+                            )
+                        )
+                    else:
+                        # Trigger optimization which forces indexing
+                        connections.qdrant_client.update_collection(
+                            collection_name=collection_name,
+                            optimizer_config=OptimizersConfigDiff(
+                                indexing_threshold=1  # Force immediate indexing
+                            )
+                        )
+                    
+                    # Wait for indexing to complete
+                    await asyncio.sleep(2)
+                    
+                    # Get collection status after indexing
+                    collection_info_after = connections.qdrant_client.get_collection(collection_name)
+                    points_after = collection_info_after.points_count
+                    indexed_after = getattr(collection_info_after, 'indexed_vectors_count', 0)
+                    
+                    results[collection_name] = {
+                        "success": True,
+                        "before": {
+                            "points_count": points_before,
+                            "indexed_vectors_count": indexed_before
+                        },
+                        "after": {
+                            "points_count": points_after,
+                            "indexed_vectors_count": indexed_after
+                        },
+                        "indexing_triggered": indexed_after > indexed_before,
+                        "force_rebuild": request.force_rebuild
+                    }
+                    
+                except Exception as e:
+                    results[collection_name] = {
+                        "success": False,
+                        "error": str(e)
+                    }
+                    overall_success = False
+            
+            # Clean up connections
+            await connections.close_all()
+            
+            return {
+                "success": overall_success,
+                "message": f"Indexing {'completed' if overall_success else 'partially completed'} for {len(target_collections)} collections",
+                "collections_processed": target_collections,
+                "force_rebuild": request.force_rebuild,
+                "results": results,
+                "next_steps": {
+                    "test_search": "Use /search endpoint to test if search now works",
+                    "ai_compilation": "Try the AI video compilation pipeline",
+                    "verify_indexing": "Check that indexed_vectors_count > 0 for your collections"
+                }
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Qdrant indexing failed: {str(e)}")
+
 
 
 
@@ -276,9 +403,29 @@ async def health_check():
             "carousel_support": True,
             "ai_credit_management": True,
             "graceful_audio_handling": True,
-            "enhanced_video_context": True
+            "enhanced_video_context": True,
+            "rate_limiting": True
         }
     }
+
+@app.get("/rate-limits")
+async def get_rate_limits():
+    """Get current rate limiting status for all AI providers."""
+    try:
+        from app.ai_rate_limiter import get_all_usage_stats
+        usage_stats = get_all_usage_stats()
+        
+        return {
+            "success": True,
+            "providers": usage_stats,
+            "message": "Rate limiting statistics retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to get rate limiting statistics: {str(e)}",
+            "providers": {}
+        }
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8500))

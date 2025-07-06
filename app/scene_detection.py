@@ -28,11 +28,21 @@ def get_video_duration(video_path: str) -> float:
         'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1', video_path
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
-        return float(result.stdout.strip())
-    except Exception:
-        return None
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        duration_str = result.stdout.strip()
+        if not duration_str:
+            raise ValueError(f"No duration found for video: {video_path}")
+        duration = float(duration_str)
+        if duration <= 0:
+            raise ValueError(f"Invalid duration for video: {duration}")
+        return duration
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Failed to get video duration for {video_path}: {e.stderr}")
+    except ValueError as e:
+        raise ValueError(f"Invalid duration data for video {video_path}: {e}")
+    except Exception as e:
+        raise ValueError(f"Unexpected error getting video duration for {video_path}: {e}")
 
 def extract_frames_from_scene(video_path: str, start_time: float, end_time: float, 
                             out_dir: str, scene_index: int, fps: int = 5) -> List[str]:
@@ -185,7 +195,11 @@ def extract_scene_cuts_and_extreme_frames(video_path: str, out_dir: str, thresho
     
     # Step 1: Find scene cuts
     cut_times = detect_scenes(video_path, threshold)
-    duration = get_video_duration(video_path)
+    try:
+        duration = get_video_duration(video_path)
+    except ValueError as e:
+        print(f"❌ Failed to get video duration: {e}")
+        return []
     
     if not cut_times and duration:
         # If no cuts found, treat entire video as one scene
@@ -226,7 +240,12 @@ def extract_scene_cuts_and_extreme_frames(video_path: str, out_dir: str, thresho
             # Extract timestamp from frame position
             frame_idx = scene_frames.index(frame_path)
             scene_duration = end_time - start_time
-            frame_timestamp = start_time + (frame_idx / (len(scene_frames) - 1)) * scene_duration
+            
+            # Handle case where there's only 1 frame (avoid division by zero)
+            if len(scene_frames) <= 1:
+                frame_timestamp = start_time + (scene_duration / 2)  # Use middle of scene
+            else:
+                frame_timestamp = start_time + (frame_idx / (len(scene_frames) - 1)) * scene_duration
             
             extreme_frames.append({
                 'frame_path': frame_path,

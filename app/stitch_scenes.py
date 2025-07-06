@@ -21,8 +21,19 @@ def get_video_duration(video_path: str) -> float:
         '-of', 'default=noprint_wrappers=1:nokey=1',
         video_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        duration_str = result.stdout.strip()
+        if not duration_str:
+            raise ValueError(f"No duration found for video: {video_path}")
+        duration = float(duration_str)
+        if duration <= 0:
+            raise ValueError(f"Invalid duration for video: {duration}")
+        return duration
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Failed to get video duration for {video_path}: {e.stderr}")
+    except ValueError as e:
+        raise ValueError(f"Invalid duration data for video {video_path}: {e}")
 
 def get_audio_duration(audio_path: str) -> float:
     """Get the duration of an audio file in seconds."""
@@ -32,12 +43,27 @@ def get_audio_duration(audio_path: str) -> float:
         '-of', 'default=noprint_wrappers=1:nokey=1',
         audio_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        duration_str = result.stdout.strip()
+        if not duration_str:
+            raise ValueError(f"No duration found for audio: {audio_path}")
+        duration = float(duration_str)
+        if duration <= 0:
+            raise ValueError(f"Invalid duration for audio: {duration}")
+        return duration
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Failed to get audio duration for {audio_path}: {e.stderr}")
+    except ValueError as e:
+        raise ValueError(f"Invalid duration data for audio {audio_path}: {e}")
 
 def loop_video(input_path: str, target_duration: float, output_path: str):
     """Loop a video to match the target duration."""
     video_duration = get_video_duration(input_path)
+    
+    # Handle case where video has no duration (avoid division by zero)
+    if video_duration <= 0:
+        raise ValueError(f"Video has invalid duration: {video_duration}")
     
     if video_duration >= target_duration:
         # If video is longer, just trim it
