@@ -52,7 +52,7 @@ class RequirementsGenerator:
             
             # Call OpenAI to generate structured queries
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
@@ -94,49 +94,67 @@ class RequirementsGenerator:
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for query generation."""
-        return """You are an expert at breaking down video compilation requirements into specific search queries.
+        return """You are an expert fitness trainer specializing in creating personalized workout routines.
 
-Your task is to analyze user context and requirements, then generate 5-8 specific search queries that will find relevant video segments for compilation.
+Your task is to analyze the user's workout request and break it down into specific exercises and movements that would create an effective routine.
+
+For example, if someone asks for a "full body mobility routine", you should think:
+1. What areas need mobility work? (hips, shoulders, spine, ankles)
+2. What basic exercises target these areas? (hip flexor stretches, shoulder circles)
+3. How to progress through the routine? (start with basic movements, build complexity)
+4. What specific movements would work best? (downward dog for posterior chain, cat-cow for spine)
+
+Then create 5-8 specific search queries that will find video demonstrations of these movements.
 
 Key principles:
-1. Each query should target 10-60 seconds of content
-2. Focus on specific movements, exercises, or instruction types
-3. Consider progression from beginner to advanced concepts
-4. Include variety in content types (demonstrations, instructions, transitions)
-5. Prioritize queries based on importance to the final compilation
+1. Think like a trainer - what exercises would YOU choose for this person?
+2. Be specific about movements - "hip flexor stretch with forward lunge" vs just "stretch"
+3. Consider the user's level and goals
+4. Include proper form cues and alignment details
+5. Mix different types of movements (mobility, strength, balance)
 
 You must respond in valid JSON format with an array of query objects."""
 
     def _build_query_generation_prompt(self, user_context: str, user_requirements: str) -> str:
         """Build the detailed prompt for query generation."""
-        return f"""Break down this video compilation request into specific search queries:
+        return f"""As an expert fitness trainer, analyze this workout request and create a sequence of specific exercises:
 
 CONTEXT: {user_context}
 REQUIREMENTS: {user_requirements}
 
-Generate 5-8 search queries that will find relevant video segments. Each query should be specific enough to find actual exercise demonstrations or instructions.
+First, think about what exercises and movements would create an effective routine. Consider:
+- What muscle groups and movement patterns are needed?
+- What specific exercises would work best for the user's level?
+- How should the movements progress?
+- What form cues and alignment details matter?
+
+Then generate 5-8 search queries to find video demonstrations of these movements.
 
 Respond in this exact JSON format:
 {{
   "queries": [
     {{
-      "query_text": "specific search text that describes the movement or exercise",
+      "query_text": "detailed description of the exercise with form cues",
       "priority": 8,
       "duration_target": 30.0,
-      "tags_filter": ["exercise_type", "muscle_group"],
+      "tags_filter": ["movement_type", "body_part"],
       "exclude_terms": ["advanced", "equipment"],
       "content_type": "movement"
     }}
   ]
 }}
 
+Example query texts:
+- "Hip flexor stretch in lunge position, front knee aligned over ankle"
+- "Basic squat with feet shoulder width, emphasis on knee tracking"
+- "Cat-cow spinal mobility flow with breath coordination"
+- "Shoulder mobility circles and blade retraction"
+
 Content types: "movement", "instruction", "demonstration", "transition"
 Priority: 1-10 (10 = most important)
 Duration target: 10-60 seconds per query
-Tags filter: Specific tags that should be present
-Exclude terms: Terms that should NOT be in the content
 
-Focus on finding actual exercise content that matches the user's fitness level and goals."""
+Focus on finding clear demonstrations that match the user's level and goals."""
 
     def _parse_openai_response(self, response_text: str) -> List[Dict[str, Any]]:
         """Parse OpenAI JSON response into query data."""

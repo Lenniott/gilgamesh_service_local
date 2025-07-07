@@ -16,7 +16,6 @@ import tempfile
 import os
 
 from app.db_connections import DatabaseConnections
-from app.ai_script_generator import CompilationScript, ScriptSegment
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +82,10 @@ class OpenAITTSGenerator:
         self._request_semaphore = asyncio.Semaphore(self.max_concurrent_requests)
     
     async def generate_audio_from_script(self, 
-                                       script: CompilationScript,
+                                       script,  # CompilationScript - legacy method
                                        voice_preference: str = "alloy",
                                        use_voice_variety: bool = True,
-                                       high_quality: bool = False) -> AudioGenerationResult:
+                                       high_quality: bool = False):
         """
         Generate audio narration for all segments in a compilation script.
         
@@ -293,7 +292,7 @@ class OpenAITTSGenerator:
                 logger.error(f"❌ Failed to generate audio for segment '{audio_segment.segment_id}': {e}")
                 return audio_segment
     
-    def _select_voice_for_segment(self, segment: ScriptSegment, 
+    def _select_voice_for_segment(self, segment,  # ScriptSegment - legacy method
                                 voice_preference: str, 
                                 use_voice_variety: bool) -> str:
         """
@@ -387,7 +386,7 @@ class OpenAITTSGenerator:
         estimated_cost = (total_characters / 1_000_000) * cost_per_million_chars
         return round(estimated_cost, 4)
     
-    def _generate_placeholder_audio(self, script: CompilationScript, voice_preference: str) -> AudioGenerationResult:
+    def _generate_placeholder_audio(self, script, voice_preference: str):  # CompilationScript - legacy method
         """Generate placeholder audio when OpenAI is not available."""
         logger.warning("🔄 Generating placeholder audio segments (OpenAI not available)")
         

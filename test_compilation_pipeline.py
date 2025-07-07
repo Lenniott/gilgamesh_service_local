@@ -1,637 +1,276 @@
 #!/usr/bin/env python3
 """
-Comprehensive Test Suite for AI Video Compilation Pipeline
-Reusable tests for development and validation of the compilation system
+Test AI Video Compilation Pipeline
+Tests the new simplified JSON-driven architecture
 """
 
 import asyncio
-import json
 import logging
-import time
-from typing import Dict, List, Any, Optional
+import json
+import os
+from datetime import datetime
+from typing import Dict, Any, List
+import base64 # Added for base64 decoding
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-class CompilationPipelineTest:
-    """
-    Comprehensive test suite for the video compilation pipeline.
-    Tests each component individually and the full pipeline integration.
-    """
-    
-    def __init__(self):
-        self.test_results = {
-            "total_tests": 0,
-            "passed": 0,
-            "failed": 0,
-            "skipped": 0,
-            "component_results": {},
-            "performance_metrics": {},
-            "errors": []
-        }
-        self.connections = None
-    
-    async def run_all_tests(self, include_database_tests: bool = True) -> Dict[str, Any]:
-        """
-        Run all pipeline tests and return comprehensive results.
-        
-        Args:
-            include_database_tests: Whether to run database-dependent tests
+def validate_compilation_json(compilation_json: List[Dict[str, Any]]) -> bool:
+    """Validate compilation JSON matches our vision doc format."""
+    try:
+        if not isinstance(compilation_json, list):
+            logger.error("❌ Compilation JSON must be a list")
+            return False
             
-        Returns:
-            Dictionary with test results and metrics
-        """
-        logger.info("🧪 Starting Compilation Pipeline Test Suite")
-        start_time = time.time()
-        
-        try:
-            # Initialize connections if needed
-            if include_database_tests:
-                await self._initialize_connections()
-            
-            # Run component tests
-            await self._test_requirements_generator()
-            await self._test_search_engine()
-            await self._test_script_generator()
-            
-            if include_database_tests:
-                await self._test_database_operations()
-                await self._test_full_pipeline()
-            
-            # Calculate final results
-            total_time = time.time() - start_time
-            self.test_results["total_time"] = total_time
-            self.test_results["success_rate"] = (
-                self.test_results["passed"] / max(self.test_results["total_tests"], 1) * 100
-            )
-            
-            # Print summary
-            self._print_test_summary()
-            
-            return self.test_results
-            
-        except Exception as e:
-            logger.error(f"❌ Test suite failed: {e}")
-            self.test_results["errors"].append(f"Test suite failure: {str(e)}")
-            return self.test_results
-        
-        finally:
-            # Cleanup
-            if self.connections:
-                await self._cleanup_connections()
-    
-    async def _initialize_connections(self):
-        """Initialize database connections for testing."""
-        try:
-            from app.db_connections import DatabaseConnections
-            self.connections = DatabaseConnections()
-            await self.connections.connect_all()
-            logger.info("✅ Database connections initialized for testing")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize database connections: {e}")
-            raise
-    
-    async def _test_requirements_generator(self):
-        """Test the AI Requirements Generator component."""
-        logger.info("🔍 Testing AI Requirements Generator...")
-        component_results = {"tests": [], "passed": 0, "failed": 0}
-        
-        try:
-            from app.ai_requirements_generator import RequirementsGenerator
-            
-            # Test 1: Basic query generation
-            test_name = "Basic Query Generation"
-            try:
-                # Mock connections for testing
-                mock_connections = None if not self.connections else self.connections
-                generator = RequirementsGenerator(mock_connections)
+        for segment in compilation_json:
+            # Check required fields - matching the working JSON structure
+            required_fields = ["script_segment", "clips", "audio", "duration"]
+            if not all(key in segment for key in required_fields):
+                logger.error(f"❌ Missing required fields in segment. Required: {required_fields}")
+                logger.error(f"❌ Found fields: {list(segment.keys())}")
+                return False
                 
-                # Test data
-                context = "I want to create a morning workout routine"
-                requirements = "5 minutes, beginner-friendly, focus on mobility and stretching"
+            # Validate script_segment
+            if not isinstance(segment["script_segment"], str):
+                logger.error("❌ script_segment must be a string")
+                return False
                 
-                # Generate queries (will use fallback since no OpenAI in test)
-                queries = await generator.generate_search_queries(context, requirements)
+            # Validate clips array
+            if not isinstance(segment["clips"], list):
+                logger.error("❌ clips must be a list")
+                return False
                 
-                # Validate results
-                assert len(queries) >= 3, f"Expected at least 3 queries, got {len(queries)}"
-                assert all(hasattr(q, 'query_text') for q in queries), "All queries should have query_text"
-                assert all(hasattr(q, 'priority') for q in queries), "All queries should have priority"
-                assert all(1 <= q.priority <= 10 for q in queries), "Priority should be 1-10"
+            # Validate each clip in the clips array
+            for clip in segment["clips"]:
+                clip_required_fields = ["video_id", "start", "end", "video"]
+                if not all(key in clip for key in clip_required_fields):
+                    logger.error(f"❌ Missing required fields in clip. Required: {clip_required_fields}")
+                    return False
+                    
+                if not isinstance(clip["video_id"], str):
+                    logger.error("❌ clip video_id must be a string")
+                    return False
+                    
+                if not isinstance(clip["start"], (int, float)):
+                    logger.error("❌ clip start must be a number")
+                    return False
+                    
+                if not isinstance(clip["end"], (int, float)):
+                    logger.error("❌ clip end must be a number")
+                    return False
+                    
+                if clip["video"] is not None and not isinstance(clip["video"], str):
+                    logger.error("❌ clip video must be a string or None")
+                    return False
                 
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": f"Generated {len(queries)} queries successfully"
-                })
-                component_results["passed"] += 1
+            # Validate audio
+            if segment["audio"] is not None and not isinstance(segment["audio"], str):
+                logger.error("❌ audio must be a string or None")
+                return False
                 
+            # Validate duration
+            if not isinstance(segment["duration"], (int, float)):
+                logger.error("❌ duration must be a number")
+                return False
+                
+        return True
             except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-            # Test 2: Query validation
-            test_name = "Query Validation"
-            try:
-                generator = RequirementsGenerator(self.connections)
-                
-                # Test invalid inputs
-                empty_queries = await generator.generate_search_queries("", "")
-                assert len(empty_queries) == 0, "Empty inputs should return no queries"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Validation works correctly"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-        except ImportError as e:
-            logger.error(f"❌ Cannot import RequirementsGenerator: {e}")
-            component_results["tests"].append({
-                "name": "Component Import",
-                "status": "FAILED",
-                "error": f"Import error: {str(e)}"
-            })
-            component_results["failed"] += 1
-        
-        # Update totals
-        self.test_results["component_results"]["requirements_generator"] = component_results
-        self.test_results["total_tests"] += len(component_results["tests"])
-        self.test_results["passed"] += component_results["passed"]
-        self.test_results["failed"] += component_results["failed"]
+        logger.error(f"❌ JSON validation failed: {e}")
+        return False
+
+async def test_compilation_pipeline():
+    """Test the complete AI video compilation pipeline."""
     
-    async def _test_search_engine(self):
-        """Test the Compilation Search Engine component."""
-        logger.info("🔎 Testing Compilation Search Engine...")
-        component_results = {"tests": [], "passed": 0, "failed": 0}
-        
-        try:
-            from app.compilation_search import CompilationSearchEngine
-            from app.ai_requirements_generator import SearchQuery
-            
-            # Test 1: Search engine initialization
-            test_name = "Search Engine Initialization"
-            try:
-                engine = CompilationSearchEngine(self.connections)
-                assert engine is not None, "Engine should initialize"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Engine initialized successfully"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-            # Test 2: Query processing
-            test_name = "Query Processing"
-            try:
-                engine = CompilationSearchEngine(self.connections)
-                
-                # Create test queries
-                test_queries = [
-                    SearchQuery(
-                        query_text="morning workout routine",
-                        priority=8,
-                        duration_target=300,
-                        tags_filter=["fitness", "beginner"],
-                        content_type="exercise"
-                    ),
-                    SearchQuery(
-                        query_text="stretching mobility",
-                        priority=7,
-                        duration_target=180,
-                        tags_filter=["mobility", "flexibility"],
-                        content_type="exercise"
-                    )
-                ]
-                
-                # Test search (will return empty results without database)
-                results = await engine.search_content_segments(test_queries)
-                assert isinstance(results, list), "Results should be a list"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": f"Processed {len(test_queries)} queries successfully"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-        except ImportError as e:
-            logger.error(f"❌ Cannot import CompilationSearchEngine: {e}")
-            component_results["tests"].append({
-                "name": "Component Import",
-                "status": "FAILED",
-                "error": f"Import error: {str(e)}"
-            })
-            component_results["failed"] += 1
-        
-        # Update totals
-        self.test_results["component_results"]["search_engine"] = component_results
-        self.test_results["total_tests"] += len(component_results["tests"])
-        self.test_results["passed"] += component_results["passed"]
-        self.test_results["failed"] += component_results["failed"]
+    logger.info("🧪 Testing AI Video Compilation Pipeline...")
     
-    async def _test_script_generator(self):
-        """Test the AI Script Generator component."""
-        logger.info("📝 Testing AI Script Generator...")
-        component_results = {"tests": [], "passed": 0, "failed": 0}
+    try:
+        # Import the pipeline
+        from app.video_compilation_pipeline import CompilationPipeline, CompilationRequest, CompilationResponse
         
-        try:
-            from app.ai_script_generator import ScriptGenerator
-            from app.compilation_search import SearchResult, ContentMatch
-            
-            # Test 1: Script generator initialization
-            test_name = "Script Generator Initialization"
-            try:
-                generator = ScriptGenerator(self.connections)
-                assert generator is not None, "Generator should initialize"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Generator initialized successfully"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-            # Test 2: Script creation with mock data
-            test_name = "Script Creation"
-            try:
-                generator = ScriptGenerator(self.connections)
-                
-                # Create mock search results
-                mock_results = [
-                    SearchResult(
-                        query="morning workout",
-                        matches=[
-                            ContentMatch(
-                                video_id="test-video-1",
-                                segment_type="scene",
-                                start_time=0.0,
-                                end_time=30.0,
-                                relevance_score=0.9,
-                                content_text="Morning warm-up routine",
-                                tags=["workout", "warm-up"],
-                                metadata={"duration": 30.0}
-                            )
-                        ]
-                    )
-                ]
-                
-                # Generate script
-                script = await generator.create_segmented_script(
-                    search_results=mock_results,
-                    user_context="Morning workout routine",
-                    user_requirements="5 minutes, beginner-friendly",
-                    target_duration=300.0
-                )
-                
-                assert script is not None, "Script should be generated"
-                assert hasattr(script, 'segments'), "Script should have segments"
-                assert hasattr(script, 'total_duration'), "Script should have total_duration"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": f"Generated script with {len(script.segments)} segments"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-        except ImportError as e:
-            logger.error(f"❌ Cannot import ScriptGenerator: {e}")
-            component_results["tests"].append({
-                "name": "Component Import",
-                "status": "FAILED",
-                "error": f"Import error: {str(e)}"
-            })
-            component_results["failed"] += 1
+        # Create pipeline instance
+        pipeline = CompilationPipeline()
+        await pipeline.initialize()
         
-        # Update totals
-        self.test_results["component_results"]["script_generator"] = component_results
-        self.test_results["total_tests"] += len(component_results["tests"])
-        self.test_results["passed"] += component_results["passed"]
-        self.test_results["failed"] += component_results["failed"]
-    
-    async def _test_database_operations(self):
-        """Test the Generated Video Database Operations."""
-        logger.info("💾 Testing Database Operations...")
-        component_results = {"tests": [], "passed": 0, "failed": 0}
+        # Test compilation request
+        test_request = CompilationRequest(
+            context="morning 10 minute workout, full body mobility and strength for beginners, but i also want to work being able to do a handstand so throw in some beginner exercises for that too, and some beginner yoga poses progression for pull ups",
+            requirements="30 seconds, show exercises, bodyweight only",
+            title="Test JSON Generation",
+            voice_preference="alloy",
+            aspect_ratio="square",  # Using new aspect_ratio parameter
+            max_duration=30.0,
+            audio=True,  # Include audio in JSON
+            clips=True,  # Include clips in JSON
+            include_base64=True,  # Include final video
+            show_debug_overlay=True  # Show video IDs for debugging
+        )
         
-        try:
-            from app.generated_video_operations import GeneratedVideoDatabase
-            from app.ai_script_generator import CompilationScript, ScriptSegment
+        logger.info("📋 Test Request:")
+        logger.info(f"  Context: {test_request.context}")
+        logger.info(f"  Requirements: {test_request.requirements}")
+        logger.info(f"  Duration: {test_request.max_duration}s")
+        logger.info(f"  Aspect Ratio: {test_request.aspect_ratio}")
+        
+        # Process compilation request
+        logger.info("🚀 Starting compilation...")
+        result = await pipeline.process_compilation_request(test_request)
+        
+        # Check results
+        if result.success:
+            logger.info("✅ COMPILATION SUCCESSFUL!")
+            logger.info("📊 Results:")
+            logger.info(f"  Generated Video ID: {result.generated_video_id}")
+            logger.info(f"  Duration: {result.duration:.2f}s")
+            logger.info(f"  Source Videos Used: {result.source_videos_used}")
+            logger.info(f"  Processing Time: {result.processing_time:.2f}s")
             
-            # Test 1: Database initialization
-            test_name = "Database Initialization"
-            try:
-                db = GeneratedVideoDatabase(self.connections)
-                assert db is not None, "Database should initialize"
+            # Validate JSON format
+            if result.compilation_json:
+                # Access segments correctly from the compilation result
+                segments_to_validate = result.compilation_json
+                if isinstance(result.compilation_json, dict) and "segments" in result.compilation_json:
+                    segments_to_validate = result.compilation_json["segments"]
                 
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Database initialized successfully"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-            # Test 2: Video save operation (mock)
-            test_name = "Video Save Operation"
-            try:
-                db = GeneratedVideoDatabase(self.connections)
-                
-                # Create mock script
-                mock_script = CompilationScript(
-                    total_duration=300.0,
-                    segments=[
-                        ScriptSegment(
-                            script_text="Welcome to your morning workout",
-                            start_time=0.0,
-                            end_time=30.0,
-                            assigned_video_id="test-video-1",
-                            assigned_video_start=0.0,
-                            assigned_video_end=30.0,
-                            transition_type="fade",
-                            segment_type="intro"
-                        )
-                    ],
-                    metadata={"generated_by": "test"}
-                )
-                
-                # Test save (will fail without actual database, but validates structure)
-                try:
-                    result = await db.save_generated_video(
-                        video_base64="test_base64_data",
-                        script=mock_script,
-                        title="Test Video",
-                        user_context="Test context",
-                        user_requirements="Test requirements"
-                    )
-                    # If it doesn't throw an error, it passed structure validation
-                    component_results["tests"].append({
-                        "name": test_name,
-                        "status": "PASSED",
-                        "details": "Save operation structure validated"
-                    })
-                    component_results["passed"] += 1
-                except Exception as db_error:
-                    if "Database connection not available" in str(db_error):
-                        component_results["tests"].append({
-                            "name": test_name,
-                            "status": "SKIPPED",
-                            "details": "Database not available, but structure validated"
-                        })
-                        self.test_results["skipped"] += 1
+                if validate_compilation_json(segments_to_validate):
+                    logger.info("✅ Compilation JSON format is valid")
+                    
+                    # Save test output
+                    os.makedirs("test_output", exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # Save full JSON
+                    full_path = f"test_output/compilation_full_{timestamp}.json"
+                    with open(full_path, "w") as f:
+                        json.dump(result.compilation_json, f, indent=2)
+                    logger.info(f"✅ Saved full JSON to: {full_path}")
+                    
+                    # Save preview JSON (truncate base64)
+                    preview = []
+                    for segment in segments_to_validate:
+                        preview_segment = segment.copy()
+                        if preview_segment.get("audio"):
+                            preview_segment["audio"] = preview_segment["audio"][:100] + "..."
+                        # Handle clips array for preview
+                        if preview_segment.get("clips"):
+                            preview_clips = []
+                            for clip in preview_segment["clips"]:
+                                preview_clip = clip.copy()
+                                if preview_clip.get("video"):
+                                    preview_clip["video"] = preview_clip["video"][:100] + "..."
+                                preview_clips.append(preview_clip)
+                            preview_segment["clips"] = preview_clips
+                        preview.append(preview_segment)
+                        
+                    preview_path = f"test_output/compilation_preview_{timestamp}.json"
+                    with open(preview_path, "w") as f:
+                        json.dump(preview, f, indent=2)
+                    logger.info(f"✅ Saved preview JSON to: {preview_path}")
+                    
+                    # Save final video if present
+                    if result.video_base64:
+                        video_path = f"test_output/final_video_{timestamp}.mp4"
+                        with open(video_path, "wb") as f:
+                            f.write(base64.b64decode(result.video_base64))
+                        logger.info(f"✅ Saved final video to: {video_path}")
                     else:
-                        raise db_error
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
+                        logger.warning("⚠️ No final video in response")
+                else:
+                    logger.error("❌ Invalid compilation JSON format")
+                    return False
             
-        except ImportError as e:
-            logger.error(f"❌ Cannot import GeneratedVideoDatabase: {e}")
-            component_results["tests"].append({
-                "name": "Component Import",
-                "status": "FAILED",
-                "error": f"Import error: {str(e)}"
-            })
-            component_results["failed"] += 1
-        
-        # Update totals
-        self.test_results["component_results"]["database_operations"] = component_results
-        self.test_results["total_tests"] += len(component_results["tests"])
-        self.test_results["passed"] += component_results["passed"]
-        self.test_results["failed"] += component_results["failed"]
-    
-    async def _test_full_pipeline(self):
-        """Test the full compilation pipeline integration."""
-        logger.info("🎬 Testing Full Pipeline Integration...")
-        component_results = {"tests": [], "passed": 0, "failed": 0}
-        
-        try:
-            from app.video_compilation_pipeline import CompilationPipeline, CompilationRequest
+            if result.metadata:
+                logger.info("📈 Metadata:")
+                for key, value in result.metadata.items():
+                    logger.info(f"  {key}: {value}")
             
-            # Test 1: Pipeline initialization
-            test_name = "Pipeline Initialization"
-            try:
-                pipeline = CompilationPipeline()
-                await pipeline.initialize()
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Pipeline initialized successfully"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
+            return True
+        else:
+            logger.error("❌ COMPILATION FAILED!")
+            logger.error(f"Error: {result.error}")
+            return False
             
-            # Test 2: Request validation
-            test_name = "Request Validation"
-            try:
-                pipeline = CompilationPipeline()
-                
-                # Test valid request
-                valid_request = CompilationRequest(
-                    context="I want to create a morning workout routine",
-                    requirements="5 minutes, beginner-friendly, mobility focus",
-                    title="Morning Mobility Routine"
-                )
-                
-                validation_result = pipeline._validate_compilation_request(valid_request)
-                assert validation_result["valid"] == True, "Valid request should pass validation"
-                
-                # Test invalid request
-                invalid_request = CompilationRequest(
-                    context="",  # Empty context
-                    requirements="",  # Empty requirements
-                    max_duration=10  # Too short
-                )
-                
-                validation_result = pipeline._validate_compilation_request(invalid_request)
-                assert validation_result["valid"] == False, "Invalid request should fail validation"
-                assert len(validation_result["errors"]) > 0, "Should have validation errors"
-                
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "PASSED",
-                    "details": "Request validation works correctly"
-                })
-                component_results["passed"] += 1
-                
-            except Exception as e:
-                component_results["tests"].append({
-                    "name": test_name,
-                    "status": "FAILED",
-                    "error": str(e)
-                })
-                component_results["failed"] += 1
-            
-        except ImportError as e:
-            logger.error(f"❌ Cannot import CompilationPipeline: {e}")
-            component_results["tests"].append({
-                "name": "Component Import",
-                "status": "FAILED",
-                "error": f"Import error: {str(e)}"
-            })
-            component_results["failed"] += 1
-        
-        # Update totals
-        self.test_results["component_results"]["full_pipeline"] = component_results
-        self.test_results["total_tests"] += len(component_results["tests"])
-        self.test_results["passed"] += component_results["passed"]
-        self.test_results["failed"] += component_results["failed"]
-    
-    async def _cleanup_connections(self):
-        """Cleanup database connections."""
-        try:
-            if self.connections:
-                await self.connections.close_all()
-                logger.info("✅ Database connections cleaned up")
-        except Exception as e:
-            logger.error(f"❌ Failed to cleanup connections: {e}")
-    
-    def _print_test_summary(self):
-        """Print a comprehensive test summary."""
-        logger.info("\n" + "="*80)
-        logger.info("🧪 COMPILATION PIPELINE TEST SUMMARY")
-        logger.info("="*80)
-        
-        # Overall stats
-        logger.info(f"📊 OVERALL RESULTS:")
-        logger.info(f"   Total Tests: {self.test_results['total_tests']}")
-        logger.info(f"   ✅ Passed: {self.test_results['passed']}")
-        logger.info(f"   ❌ Failed: {self.test_results['failed']}")
-        logger.info(f"   ⏭️  Skipped: {self.test_results['skipped']}")
-        logger.info(f"   📈 Success Rate: {self.test_results['success_rate']:.1f}%")
-        logger.info(f"   ⏱️  Total Time: {self.test_results['total_time']:.2f}s")
-        
-        # Component breakdown
-        logger.info(f"\n📋 COMPONENT BREAKDOWN:")
-        for component, results in self.test_results["component_results"].items():
-            logger.info(f"   {component.replace('_', ' ').title()}:")
-            logger.info(f"     ✅ Passed: {results['passed']}")
-            logger.info(f"     ❌ Failed: {results['failed']}")
-            
-            # Show failed tests
-            failed_tests = [t for t in results["tests"] if t["status"] == "FAILED"]
-            if failed_tests:
-                logger.info(f"     Failed Tests:")
-                for test in failed_tests:
-                    logger.info(f"       - {test['name']}: {test.get('error', 'Unknown error')}")
-        
-        # Errors
-        if self.test_results["errors"]:
-            logger.info(f"\n❌ ERRORS:")
-            for error in self.test_results["errors"]:
-                logger.info(f"   - {error}")
-        
-        logger.info("="*80)
-    
-    def save_test_report(self, filename: str = "test_report.json"):
-        """Save test results to JSON file."""
-        try:
-            with open(filename, 'w') as f:
-                json.dump(self.test_results, f, indent=2, default=str)
-            logger.info(f"📄 Test report saved to {filename}")
-        except Exception as e:
-            logger.error(f"❌ Failed to save test report: {e}")
+    except Exception as e:
+        logger.error(f"❌ TEST FAILED: {e}")
+        return False
 
-# Utility functions for running tests
-async def run_quick_test():
-    """Run a quick test without database dependencies."""
-    logger.info("🚀 Running Quick Test (No Database)")
-    tester = CompilationPipelineTest()
-    results = await tester.run_all_tests(include_database_tests=False)
-    return results
+async def test_database_requirements():
+    """Test database connectivity and basic requirements."""
+    
+    logger.info("🔍 Testing database requirements...")
+    
+    try:
+        # Test database connections
+        from app.db_connections import DatabaseConnections
+        
+        connections = DatabaseConnections()
+        await connections.connect_all()
+        
+        # Check PostgreSQL
+        if connections.pg_pool:
+            logger.info("✅ PostgreSQL connection: OK")
+        else:
+            logger.warning("⚠️ PostgreSQL connection: FAILED")
+            return False
+        
+        # Check Qdrant
+        if connections.qdrant_client:
+            logger.info("✅ Qdrant connection: OK")
+            
+            # Check collections
+            collections_response = connections.qdrant_client.get_collections()
+            logger.info("📊 Qdrant Collections:")
+            for collection in collections_response.collections:
+                collection_info = connections.qdrant_client.get_collection(collection.name)
+                logger.info(f"  {collection.name}: {collection_info.points_count} points")
+        else:
+            logger.warning("⚠️ Qdrant connection: FAILED")
+            return False
+        
+        # Check OpenAI
+        if connections.openai_client:
+            logger.info("✅ OpenAI client: OK")
+        else:
+            logger.warning("⚠️ OpenAI client: FAILED")
+            return False
+        
+        # Check if we have some video data to work with
+        async with connections.pg_pool.acquire() as conn:
+            video_count = await conn.fetchval("SELECT COUNT(*) FROM simple_videos WHERE video_base64 IS NOT NULL")
+            logger.info(f"📹 Videos with base64 data: {video_count}")
+            
+            if video_count == 0:
+                logger.warning("⚠️ No videos with base64 data found - compilation may not work")
+                return False
+        
+        await connections.close_all()
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Database test failed: {e}")
+        return False
 
-async def run_full_test():
-    """Run full test suite including database tests."""
-    logger.info("🚀 Running Full Test Suite")
-    tester = CompilationPipelineTest()
-    results = await tester.run_all_tests(include_database_tests=True)
-    tester.save_test_report()
-    return results
+async def run_all_tests():
+    """Run all tests in sequence."""
+    
+    logger.info("🧪 STARTING AI VIDEO COMPILATION PIPELINE TESTS")
+    logger.info("=" * 60)
+    
+    # Test 1: Database requirements
+    logger.info("\n🔍 TEST 1: Database Requirements")
+    db_test = await test_database_requirements()
+    
+    # Test 2: Full pipeline
+    logger.info("\n🚀 TEST 2: Full Pipeline")
+    pipeline_test = await test_compilation_pipeline()
+    
+    # Summary
+    logger.info("\n📊 TEST SUMMARY")
+    logger.info("=" * 60)
+    logger.info(f"Database Test: {'✅' if db_test else '❌'}")
+    logger.info(f"Pipeline Test: {'✅' if pipeline_test else '❌'}")
+    
+    return all([db_test, pipeline_test])
 
-# Command line interface
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "quick":
-        # Quick test without database
-        results = asyncio.run(run_quick_test())
-    else:
-        # Full test suite
-        results = asyncio.run(run_full_test())
-    
-    # Exit with appropriate code
-    if results["failed"] > 0:
-        sys.exit(1)
-    else:
-        sys.exit(0) 
+    asyncio.run(run_all_tests()) 

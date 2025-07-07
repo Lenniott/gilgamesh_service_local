@@ -1,567 +1,483 @@
 #!/usr/bin/env python3
 """
 AI Script Generator for Video Compilation Pipeline
-Creates structured scripts with precise timing and video assignments
+Generates structured JSON with script segments, video clips, and audio.
 """
 
+import asyncio
+import json
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-import json
+import base64
+import tempfile
+import os
+
+# Import existing components
 from app.db_connections import DatabaseConnections
-from app.compilation_search import SearchResult, ContentMatch
+from app.compilation_search import ContentMatch
+from app.audio_generator import OpenAITTSGenerator
+from app.video_processing import extract_and_downscale_scene
+from app.simple_db_operations import SimpleVideoDatabase
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class ScriptSegment:
-    """Individual segment of the compilation script."""
-    script_text: str
-    start_time: float
-    end_time: float
-    assigned_video_id: str
-    assigned_video_start: float
-    assigned_video_end: float
-    transition_type: str  # "cut", "fade", "crossfade"
-    segment_type: str  # "introduction", "main_content", "transition", "conclusion"
-    
-    @property
-    def duration(self) -> float:
-        """Get segment duration in seconds."""
-        return self.end_time - self.start_time
-    
-    @property
-    def assigned_video_duration(self) -> float:
-        """Get assigned video segment duration in seconds."""
-        return self.assigned_video_end - self.assigned_video_start
+class VideoClip:
+    """Individual video clip with base64 data."""
+    video_id: str
+    start: float
+    end: float
+    video: Optional[str] = None  # base64 video clip (square or 9:16)
 
 @dataclass
-class CompilationScript:
-    """Complete compilation script with all segments."""
-    total_duration: float
-    segments: List[ScriptSegment]
-    metadata: Dict[str, Any]
-    
-    @property
-    def segment_count(self) -> int:
-        """Get total number of segments."""
-        return len(self.segments)
-    
-    @property
-    def unique_videos_used(self) -> int:
-        """Get number of unique videos used."""
-        return len(set(segment.assigned_video_id for segment in self.segments))
+class CompilationSegment:
+    """Single segment of the compilation."""
+    script_segment: str           # AI-generated instructional text
+    clips: List[VideoClip]       # 1-3 clips per segment
+    audio: Optional[str] = None  # base64 audio for this segment
+    duration: float = 0.0        # Audio duration (clips loop to match)
 
-class ScriptGenerator:
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format matching vision doc."""
+        return {
+            "script_segment": self.script_segment,
+            "clips": [
+                {
+                    "video_id": clip.video_id,
+                    "start": clip.start,
+                    "end": clip.end,
+                    "video": clip.video
+                } for clip in self.clips
+            ],
+            "audio": self.audio,
+            "duration": self.duration
+        }
+
+class AIScriptGenerator:
     """
-    AI-powered script generator for video compilation.
-    Creates structured scripts with precise timing and video assignments.
+    AI Script Generator for video compilation pipeline.
+    Generates complete compilation JSON with script segments, video clips, and audio.
     """
     
     def __init__(self, connections: DatabaseConnections):
         self.connections = connections
-        self.openai_client = connections.get_openai_client()
+        self.audio_generator = OpenAITTSGenerator(connections)
+        self.video_db = SimpleVideoDatabase()
+        
+    async def initialize(self):
+        """Initialize the script generator."""
+        try:
+            await self.video_db.initialize()
+            logger.info("✅ AI Script Generator initialized")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize AI Script Generator: {e}")
+            return False
     
-    async def create_segmented_script(self, 
-                                    search_results: List[SearchResult],
-                                    user_context: str,
+    async def generate_compilation_json(self, 
+                                      content_matches: List[ContentMatch],
                                     user_requirements: str,
-                                    target_duration: float = 300.0) -> CompilationScript:
+                                      include_audio: bool = True,
+                                      include_clips: bool = True,
+                                      aspect_ratio: str = "9:16",
+                                      show_debug_overlay: bool = False) -> List[Dict[str, Any]]:
         """
-        Generate script with precise timing and video assignments.
+        Generate complete compilation JSON with script segments, video clips, and audio.
         
         Args:
-            search_results: Search results from compilation search engine
-            user_context: Original user context
-            user_requirements: Original user requirements
-            target_duration: Target duration for the compilation in seconds
+            content_matches: List of relevant content matches from search
+            user_requirements: User requirements for the compilation
+            include_audio: Whether to include base64 audio in JSON
+            include_clips: Whether to include base64 clips in JSON
+            aspect_ratio: Target aspect ratio ("square" or "9:16")
+            show_debug_overlay: Whether to show video ID overlay for debugging
             
         Returns:
-            CompilationScript with all segments and assignments
+            List of compilation segments matching vision doc format
         """
-        if not self.openai_client:
-            logger.error("❌ OpenAI client not available")
-            return self._generate_fallback_script(search_results, target_duration)
         
-        try:
-            logger.info(f"🎬 Generating script for {len(search_results)} search results...")
+        # Process each content match into a segment
+        segments = []
+        used_video_ids = set()
+        
+        # Group matches by video_id and timestamp
+        grouped_matches = {}
+        for match in content_matches:
+            key = (match.video_id, match.start_time, match.end_time)
+            if key not in grouped_matches:
+                grouped_matches[key] = {"scene": None, "transcript": None}
+            grouped_matches[key][match.segment_type] = match
+        
+        # Process each group
+        for (video_id, start_time, end_time), matches in grouped_matches.items():
+            # Skip if we've already used this video too many times
+            if video_id in used_video_ids and len(used_video_ids) > 3:
+                continue
             
-            # Analyze available content
-            content_analysis = self._analyze_available_content(search_results)
+            scene_match = matches["scene"]
+            transcript_match = matches["transcript"]
             
-            # Generate script structure using OpenAI
-            script_structure = await self._generate_script_structure(
-                user_context, user_requirements, content_analysis, target_duration
+            # Skip if we don't have a scene description
+            if not scene_match:
+                continue
+            
+            # Generate script using both scene and transcript if available
+            script = await self._generate_segment_script(
+                scene_description=scene_match.content_text,
+                transcript_text=transcript_match.content_text if transcript_match else None,
+                user_requirements=user_requirements
             )
             
-            # Assign video segments to script segments
-            script_segments = await self._assign_video_segments(script_structure, search_results)
+            # Generate audio for the script
+            audio_base64 = await self.audio_generator.generate_single_audio(script, voice="alloy", high_quality=False) if include_audio else None
             
-            # Optimize timing and transitions
-            optimized_segments = self._optimize_timing_and_transitions(script_segments, target_duration)
+            # Calculate duration based on video clip
+            duration = end_time - start_time
             
-            # Create final compilation script
-            compilation_script = CompilationScript(
-                total_duration=sum(segment.duration for segment in optimized_segments),
-                segments=optimized_segments,
-                metadata={
-                    "user_context": user_context,
-                    "user_requirements": user_requirements,
-                    "target_duration": target_duration,
-                    "content_analysis": content_analysis,
-                    "generation_timestamp": self._get_timestamp(),
-                    "unique_videos_used": len(set(segment.assigned_video_id for segment in optimized_segments)),
-                    "total_segments": len(optimized_segments)
-                }
-            )
+            # Extract video clip if needed
+            video_clip_obj = await self._extract_video_clip(scene_match, aspect_ratio) if include_clips else None
+            video_clip_base64 = video_clip_obj.video if video_clip_obj else None
             
-            logger.info(f"✅ Generated script with {len(optimized_segments)} segments, "
-                       f"duration: {compilation_script.total_duration:.1f}s, "
-                       f"videos used: {compilation_script.unique_videos_used}")
-            
-            return compilation_script
-            
-        except Exception as e:
-            logger.error(f"❌ Script generation failed: {e}")
-            return self._generate_fallback_script(search_results, target_duration)
-    
-    def _analyze_available_content(self, search_results: List[SearchResult]) -> Dict[str, Any]:
-        """Analyze available content from search results."""
-        all_matches = []
-        for result in search_results:
-            all_matches.extend(result.matches)
-        
-        if not all_matches:
-            return {"total_matches": 0, "total_duration": 0.0, "content_types": {}}
-        
-        # Calculate total available duration
-        total_duration = sum(match.duration for match in all_matches)
-        
-        # Analyze content types
-        content_types = {}
-        segment_types = {}
-        
-        for match in all_matches:
-            # Count segment types
-            segment_types[match.segment_type] = segment_types.get(match.segment_type, 0) + 1
-            
-            # Count content types from tags
-            for tag in match.tags:
-                content_types[tag] = content_types.get(tag, 0) + 1
-        
-        # Find most common content types
-        top_content_types = sorted(content_types.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        return {
-            "total_matches": len(all_matches),
-            "total_duration": total_duration,
-            "average_duration": total_duration / len(all_matches),
-            "segment_types": segment_types,
-            "content_types": dict(top_content_types),
-            "unique_videos": len(set(match.video_id for match in all_matches))
-        }
-    
-    async def _generate_script_structure(self, user_context: str, user_requirements: str, 
-                                       content_analysis: Dict[str, Any], target_duration: float) -> List[Dict[str, Any]]:
-        """Generate script structure using OpenAI."""
-        try:
-            # Build comprehensive prompt
-            prompt = self._build_script_generation_prompt(
-                user_context, user_requirements, content_analysis, target_duration
-            )
-            
-            # Call OpenAI to generate script structure
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
+            # Create segment with clips array format
+            segment = {
+                "script_segment": script,
+                "clips": [
                     {
-                        "role": "system",
-                        "content": self._get_script_system_prompt()
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
+                        "video_id": video_id,
+                        "start": start_time,
+                        "end": end_time,
+                        "video": video_clip_base64
                     }
                 ],
-                max_tokens=1500,
-                temperature=0.2,  # Slightly higher for creativity, but still structured
-                response_format={"type": "json_object"}
+                "audio": audio_base64,
+                "duration": duration
+            }
+            
+            segments.append(segment)
+            used_video_ids.add(video_id)
+            
+        return segments
+    
+    async def _generate_script_structure(self, content_matches: List[ContentMatch], 
+                                       user_requirements: str) -> List[str]:
+        """Generate script segments using AI."""
+        try:
+            # Create summary of available content
+            content_summary = self._summarize_content_matches(content_matches)
+            
+            # Generate AI prompt for script structure
+            prompt = f"""
+You are a fitness video script writer. Based on the user's requirements and available video content, create a structured workout script.
+
+USER REQUIREMENTS: {user_requirements}
+
+AVAILABLE CONTENT:
+{content_summary}
+
+Generate a JSON array of script segments. Each segment should be:
+- 15-30 seconds of instructional narration
+- Clear, beginner-friendly exercise instructions
+- Natural transitions between exercises
+- No intro/outro - just the exercises and instructions
+- No fluff just instructions and benefits
+- make sure to include the number of reps and sets for each exercise
+
+Return ONLY a JSON array of strings, like:
+[
+  "Start with basic squats. Keep your feet shoulder-width apart and lower down slowly, engaging your core throughout the movement.",
+  "Now transition to push-ups. Start in a plank position, lower your chest to the ground, then push back up with control.",
+  "Let's move to standing marching. Lift your knees high while maintaining good posture and engaging your core."
+]
+
+Make it 3-5 segments total.
+"""
+            
+            # Call OpenAI to generate script
+            response = await self.connections.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a fitness video script writer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.7
             )
             
-            # Parse the response
-            response_text = response.choices[0].message.content.strip()
-            script_data = json.loads(response_text)
+            # Parse AI response
+            script_text = response.choices[0].message.content.strip()
             
-            return script_data.get("segments", [])
+            # Clean up the response and parse JSON
+            if script_text.startswith('```json'):
+                script_text = script_text[7:-3]
+            elif script_text.startswith('```'):
+                script_text = script_text[3:-3]
+            
+            script_segments = json.loads(script_text)
+            
+            logger.info(f"✅ Generated {len(script_segments)} script segments")
+            return script_segments
             
         except Exception as e:
-            logger.error(f"❌ Script structure generation failed: {e}")
-            return self._generate_fallback_script_structure(target_duration)
-    
-    def _get_script_system_prompt(self) -> str:
-        """Get the system prompt for script generation."""
-        return """You are an expert fitness video script writer and editor.
-
-Your task is to create a structured script for a fitness video compilation that will engage viewers and provide clear, actionable guidance.
-
-Key principles:
-1. Create a logical flow from warm-up to main content to cool-down
-2. Use clear, motivational language that matches the fitness level
-3. Include specific timing for each segment
-4. Ensure smooth transitions between different exercises
-5. Make instructions clear and actionable
-
-You must respond in valid JSON format with a segments array."""
-
-    def _build_script_generation_prompt(self, user_context: str, user_requirements: str, 
-                                      content_analysis: Dict[str, Any], target_duration: float) -> str:
-        """Build the detailed prompt for script generation."""
-        return f"""Create a structured script for a fitness video compilation:
-
-CONTEXT: {user_context}
-REQUIREMENTS: {user_requirements}
-TARGET DURATION: {target_duration} seconds
-
-AVAILABLE CONTENT ANALYSIS:
-- Total video segments available: {content_analysis.get('total_matches', 0)}
-- Available content duration: {content_analysis.get('total_duration', 0):.1f} seconds
-- Content types: {', '.join(content_analysis.get('content_types', {}).keys())}
-- Segment types: {content_analysis.get('segment_types', {})}
-
-Create a script with 4-8 segments that flow logically and use the available content effectively.
-
-Respond in this exact JSON format:
-{{
-  "segments": [
-    {{
-      "script_text": "Welcome to your morning mobility routine. Let's start with gentle movements to wake up your body.",
-      "duration": 30.0,
-      "segment_type": "introduction",
-      "content_requirements": "welcoming introduction, gentle movements",
-      "transition_type": "fade"
-    }},
-    {{
-      "script_text": "Now we'll move into some dynamic stretches to improve your flexibility and range of motion.",
-      "duration": 60.0,
-      "segment_type": "main_content",
-      "content_requirements": "stretching, flexibility, dynamic movement",
-      "transition_type": "cut"
-    }}
-  ]
-}}
-
-Segment types: "introduction", "main_content", "transition", "conclusion"
-Transition types: "cut", "fade", "crossfade"
-
-Make the script engaging, clear, and appropriate for the user's fitness level. Ensure the total duration matches the target."""
-
-    def _generate_fallback_script_structure(self, target_duration: float) -> List[Dict[str, Any]]:
-        """Generate fallback script structure when OpenAI is not available."""
-        logger.warning("🔄 Generating fallback script structure")
-        
-        # Basic 4-segment structure
-        segment_duration = target_duration / 4
-        
+            logger.error(f"❌ Failed to generate script structure: {e}")
+            # Return fallback script segments
         return [
-            {
-                "script_text": "Welcome to your workout routine. Let's begin with some preparation movements.",
-                "duration": segment_duration,
-                "segment_type": "introduction",
-                "content_requirements": "introduction, preparation",
-                "transition_type": "fade"
-            },
-            {
-                "script_text": "Now we'll move into the main exercises. Focus on proper form and controlled movements.",
-                "duration": segment_duration,
-                "segment_type": "main_content",
-                "content_requirements": "main exercises, proper form",
-                "transition_type": "cut"
-            },
-            {
-                "script_text": "Let's continue with more targeted movements to build strength and improve mobility.",
-                "duration": segment_duration,
-                "segment_type": "main_content",
-                "content_requirements": "targeted movements, strength, mobility",
-                "transition_type": "cut"
-            },
-            {
-                "script_text": "Excellent work! Let's finish with some cool-down movements to help your body recover.",
-                "duration": segment_duration,
-                "segment_type": "conclusion",
-                "content_requirements": "cool-down, recovery",
-                "transition_type": "fade"
-            }
-        ]
+                "Start with gentle warm-up movements to prepare your body for exercise.",
+                "Now let's move into the main exercises with proper form and control.",
+                "Continue with steady movements, focusing on your breathing and technique.",
+                "Finish with some light stretching to cool down and relax your muscles."
+            ]
     
-    async def _assign_video_segments(self, script_structure: List[Dict[str, Any]], 
-                                   search_results: List[SearchResult]) -> List[ScriptSegment]:
-        """Assign video segments to script segments based on content requirements."""
-        script_segments = []
-        current_time = 0.0
+    def _summarize_content_matches(self, content_matches: List[ContentMatch]) -> str:
+        """Create a summary of available content matches."""
+        if not content_matches:
+            return "No specific content available."
         
-        # Create a pool of available matches
-        available_matches = []
-        for result in search_results:
-            available_matches.extend(result.matches)
+        summary_lines = []
+        for i, match in enumerate(content_matches[:10]):  # Limit to first 10 matches
+            summary_lines.append(f"- {match.content_text[:100]}...")
         
-        # Sort matches by relevance score
-        available_matches.sort(key=lambda m: m.relevance_score, reverse=True)
-        
-        for i, script_segment in enumerate(script_structure):
-            # Find best matching video segment
-            best_match = self._find_best_video_match(script_segment, available_matches)
+        return "\n".join(summary_lines)
+    
+    async def _generate_segment_audio(self, script_text: str) -> Optional[Dict[str, Any]]:
+        """Generate audio for a single script segment."""
+        try:
+            # Generate audio using OpenAI TTS
+            audio_base64 = await self.audio_generator.generate_single_audio(
+                text=script_text,
+                voice="alloy",
+                high_quality=False
+            )
             
-            if best_match:
-                # Calculate timing
-                segment_duration = script_segment.get("duration", 30.0)
-                end_time = current_time + segment_duration
+            if audio_base64:
+                # Estimate duration based on text length (rough approximation)
+                # Average speaking rate: ~150 words per minute
+                word_count = len(script_text.split())
+                duration = max(5.0, (word_count / 150) * 60)  # Min 5 seconds
                 
-                # Determine video segment timing
-                video_start, video_end = self._calculate_video_timing(best_match, segment_duration)
-                
-                # Create script segment
-                script_seg = ScriptSegment(
-                    script_text=script_segment.get("script_text", ""),
-                    start_time=current_time,
-                    end_time=end_time,
-                    assigned_video_id=best_match.video_id,
-                    assigned_video_start=video_start,
-                    assigned_video_end=video_end,
-                    transition_type=script_segment.get("transition_type", "cut"),
-                    segment_type=script_segment.get("segment_type", "main_content")
-                )
-                
-                script_segments.append(script_seg)
-                current_time = end_time
-                
-                # Remove used match from available pool (to encourage diversity)
-                if best_match in available_matches:
-                    available_matches.remove(best_match)
+                return {
+                    "audio_base64": audio_base64,
+                    "duration": duration
+                }
             else:
-                logger.warning(f"⚠️ No video match found for script segment {i}")
-        
-        return script_segments
-    
-    def _find_best_video_match(self, script_segment: Dict[str, Any], 
-                              available_matches: List[ContentMatch]) -> Optional[ContentMatch]:
-        """Find the best video match for a script segment."""
-        if not available_matches:
+                logger.warning(f"⚠️ Audio generation failed for segment: {script_text[:50]}...")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to generate audio for segment: {e}")
             return None
         
-        content_requirements = script_segment.get("content_requirements", "").lower()
-        segment_type = script_segment.get("segment_type", "main_content")
+    async def _select_video_clips(self, script_text: str, content_matches: List[ContentMatch], 
+                                aspect_ratio: str) -> List[VideoClip]:
+        """Select and extract video clips for a script segment."""
+        try:
+            # Select 1-2 best matching clips for this segment
+            relevant_matches = self._find_relevant_matches(script_text, content_matches)
+            selected_matches = relevant_matches[:2]  # Max 2 clips per segment
+            
+            clips = []
+            for match in selected_matches:
+                # Extract video clip
+                clip = await self._extract_video_clip(match, aspect_ratio)
+                if clip:
+                    clips.append(clip)
+            
+            # Ensure at least 1 clip
+            if not clips and content_matches:
+                # Fallback to first available match
+                clip = await self._extract_video_clip(content_matches[0], aspect_ratio)
+                if clip:
+                    clips.append(clip)
+            
+            return clips
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to select video clips: {e}")
+            return []
+    
+    def _find_relevant_matches(self, script_text: str, content_matches: List[ContentMatch]) -> List[ContentMatch]:
+        """Find content matches most relevant to the script text."""
+        script_lower = script_text.lower()
         
-        # Score each match
+        # Score matches based on semantic similarity and variety
         scored_matches = []
-        for match in available_matches:
-            score = 0.0
-            
-            # Base relevance score
-            score += match.relevance_score
-            
-            # Content requirements matching
-            if content_requirements:
-                content_text_lower = match.content_text.lower()
-                tags_lower = [tag.lower() for tag in match.tags]
-                
-                # Check if content requirements are mentioned
-                for req in content_requirements.split():
-                    if req in content_text_lower or any(req in tag for tag in tags_lower):
-                        score += 0.1
-            
-            # Segment type matching
-            if segment_type == "introduction" and any(tag in ["warmup", "preparation", "introduction"] for tag in match.tags):
-                score += 0.15
-            elif segment_type == "conclusion" and any(tag in ["cooldown", "recovery", "conclusion"] for tag in match.tags):
-                score += 0.15
-            elif segment_type == "main_content" and any(tag in ["exercise", "movement", "training"] for tag in match.tags):
-                score += 0.1
-            
-            scored_matches.append((match, score))
+        used_video_ids = set()
         
-        # Return the best match
-        scored_matches.sort(key=lambda x: x[1], reverse=True)
-        return scored_matches[0][0] if scored_matches else None
-    
-    def _calculate_video_timing(self, match: ContentMatch, target_duration: float) -> tuple[float, float]:
-        """Calculate optimal video segment timing."""
-        video_duration = match.duration
-        
-        if video_duration <= target_duration:
-            # Use entire video segment
-            return match.start_time, match.end_time
-        else:
-            # Use portion of video segment, preferring the beginning
-            return match.start_time, match.start_time + target_duration
-    
-    def _optimize_timing_and_transitions(self, script_segments: List[ScriptSegment], 
-                                       target_duration: float) -> List[ScriptSegment]:
-        """Optimize timing and transitions for the final script."""
-        if not script_segments:
-            return script_segments
-        
-        # Calculate current total duration
-        current_duration = sum(segment.duration for segment in script_segments)
-        
-        # Adjust timing if needed
-        if abs(current_duration - target_duration) > 5.0:  # More than 5 seconds difference
-            # Prevent division by zero
-            if current_duration <= 0:
-                logger.warning(f"⚠️ Current duration is {current_duration}, cannot scale timing")
-                return script_segments
+        for match in content_matches:
+            content_lower = match.content_text.lower()
             
-            scale_factor = target_duration / current_duration
+            # Skip if we already used this video (unless we have no choice)
+            if match.video_id in used_video_ids and len(content_matches) > len(used_video_ids):
+                continue
             
-            # Adjust each segment proportionally
-            current_time = 0.0
-            for segment in script_segments:
-                new_duration = segment.duration * scale_factor
-                segment.start_time = current_time
-                segment.end_time = current_time + new_duration
-                
-                # Adjust video timing proportionally
-                video_duration = segment.assigned_video_end - segment.assigned_video_start
-                new_video_duration = video_duration * scale_factor
-                segment.assigned_video_end = segment.assigned_video_start + new_video_duration
-                
-                current_time += new_duration
+            # Score based on keyword overlap
+            fitness_keywords = [
+                'squat', 'push', 'plank', 'stretch', 'arm', 'leg', 'core', 'balance',
+                'movement', 'exercise', 'position', 'muscle', 'strength', 'cardio',
+                'warm', 'cool', 'breathe', 'hold', 'repeat', 'form', 'technique'
+            ]
+            
+            # Base score from keyword matches
+            score = 0
+            for keyword in fitness_keywords:
+                if keyword in script_lower and keyword in content_lower:
+                    score += 1
+            
+            # Bonus for longer clips (more flexibility in extraction)
+            duration = match.end_time - match.start_time
+            if duration > 15:
+                score += 1
+            
+            # Bonus for high-quality matches
+            if match.relevance_score > 0.8:  # Changed from score to relevance_score
+                score += 2
+            
+            # Penalty for reusing videos
+            if match.video_id in used_video_ids:
+                score -= 3
+            
+            scored_matches.append((score, match))
+            used_video_ids.add(match.video_id)
         
-        # Optimize transitions
-        for i, segment in enumerate(script_segments):
-            if i == 0:
-                # First segment should fade in
-                segment.transition_type = "fade"
-            elif i == len(script_segments) - 1:
-                # Last segment should fade out
-                segment.transition_type = "fade"
+        # Sort by score and return top matches
+        scored_matches.sort(key=lambda x: x[0], reverse=True)
+        return [match for score, match in scored_matches if score > 0]
+
+    async def _generate_segment_script(self, scene_description: str,
+                                   transcript_text: Optional[str],
+                                   user_requirements: str) -> str:
+        """Generate script text using scene description and transcript."""
+        try:
+            # Create prompt using both scene and transcript
+            prompt = f"""
+You are a fitness video script writer. Write a clear, natural script segment that accurately describes what is happening in this video clip.
+
+SCENE DESCRIPTION:
+{scene_description}
+
+{"ORIGINAL AUDIO TRANSCRIPT:" + transcript_text if transcript_text else "NO TRANSCRIPT AVAILABLE"}
+
+USER REQUIREMENTS:
+{user_requirements}
+
+Write a natural, conversational script that:
+1. Accurately describes the exact exercise/movement shown in the video
+2. Uses any form cues or technical details from the transcript if available
+3. Maintains a encouraging, trainer-like tone
+4. Is concise and focused (15-30 seconds of speech)
+5. Does not include any movements or cues not shown in the video
+
+Return ONLY the script text, no JSON or other formatting.
+"""
+            
+            # Call OpenAI to generate script
+            response = await self.connections.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a fitness video script writer. Return only the script text."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.7
+            )
+            
+            # Get script text
+            script_text = response.choices[0].message.content.strip()
+            
+            logger.info(f"✅ Generated script segment: {script_text[:50]}...")
+            return script_text
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate segment script: {e}")
+            # Return simple fallback using scene description
+            return f"Now we'll do the following exercise: {scene_description}"
+
+    async def _extract_video_clip(self, match: ContentMatch, aspect_ratio: str) -> Optional[VideoClip]:
+        """Extract and format a video clip."""
+        try:
+            # Get video data from database
+            video_data = await self.video_db.get_video_base64(match.video_id)
+            if not video_data:
+                logger.warning(f"⚠️ Video not found: {match.video_id}")
+                return None
+            
+            # Calculate clip duration and position
+            total_duration = match.end_time - match.start_time
+            if total_duration > 15:
+                # For longer clips, take a random segment
+                import random
+                start_offset = random.uniform(0, total_duration - 10)
+                clip_duration = min(10.0, total_duration - start_offset)
+                start_time = match.start_time + start_offset
             else:
-                # Middle segments can have cuts or crossfades
-                if segment.segment_type == "transition":
-                    segment.transition_type = "crossfade"
+                # For shorter clips, use the whole thing
+                start_time = match.start_time
+                clip_duration = min(total_duration, 10.0)
+            
+            # Create temporary file for processing
+            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
+                temp_file.write(base64.b64decode(video_data))
+                temp_input_path = temp_file.name
+            
+            try:
+                # Extract and format clip
+                clip_base64 = await self._extract_and_format_clip(
+                    temp_input_path, start_time, clip_duration, aspect_ratio
+                )
+                
+                if clip_base64:
+                    return VideoClip(
+                        video_id=match.video_id,
+                        start=start_time,
+                        end=start_time + clip_duration,
+                        video=clip_base64
+                    )
                 else:
-                    segment.transition_type = "cut"
-        
-        return script_segments
+                    return None
+                    
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_input_path):
+                    os.unlink(temp_input_path)
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to extract video clip: {e}")
+            return None
     
-    def _generate_fallback_script(self, search_results: List[SearchResult], 
-                                target_duration: float) -> CompilationScript:
-        """Generate fallback script when OpenAI is not available."""
-        logger.warning("🔄 Generating fallback compilation script")
-        
-        # Get available matches
-        all_matches = []
-        for result in search_results:
-            all_matches.extend(result.matches)
-        
-        if not all_matches:
-            # Create empty script
-            return CompilationScript(
-                total_duration=0.0,
-                segments=[],
-                metadata={"fallback": True, "error": "No content matches available"}
-            )
-        
-        # Create basic segments using available matches
-        segments = []
-        current_time = 0.0
-        
-        # Prevent division by zero
-        num_segments = min(4, len(all_matches))
-        if num_segments == 0:
-            logger.warning("⚠️ No segments available for fallback script")
-            return CompilationScript(
-                total_duration=0.0,
-                segments=[],
-                metadata={"fallback": True, "error": "No content matches available"}
-            )
-        
-        segment_duration = target_duration / num_segments
-        
-        for i, match in enumerate(all_matches[:4]):  # Use up to 4 matches
-            segment = ScriptSegment(
-                script_text=f"Exercise segment {i+1}: {match.content_text[:100]}...",
-                start_time=current_time,
-                end_time=current_time + segment_duration,
-                assigned_video_id=match.video_id,
-                assigned_video_start=match.start_time,
-                assigned_video_end=min(match.end_time, match.start_time + segment_duration),
-                transition_type="cut" if i > 0 else "fade",
-                segment_type="main_content"
-            )
-            segments.append(segment)
-            current_time += segment_duration
-        
-        return CompilationScript(
-            total_duration=current_time,
-            segments=segments,
-            metadata={"fallback": True, "segments_used": len(segments)}
-        )
-    
-    def _get_timestamp(self) -> str:
-        """Get current timestamp for metadata."""
-        from datetime import datetime
-        return datetime.now().isoformat()
-    
-    def validate_script(self, script: CompilationScript) -> Dict[str, Any]:
-        """
-        Validate the generated script for consistency and quality.
-        
-        Args:
-            script: CompilationScript to validate
+    async def _extract_and_format_clip(self, input_path: str, start_time: float, 
+                                     duration: float, aspect_ratio: str) -> Optional[str]:
+        """Extract and format video clip with proper aspect ratio."""
+        try:
+            # Calculate target width based on aspect ratio
+            target_width = 720 if aspect_ratio == "square" else 405  # 405 for 9:16 (720x1280)
             
-        Returns:
-            Dictionary with validation results
-        """
-        validation_results = {
-            "valid": True,
-            "warnings": [],
-            "errors": [],
-            "statistics": {}
-        }
-        
-        if not script.segments:
-            validation_results["valid"] = False
-            validation_results["errors"].append("Script has no segments")
-            return validation_results
-        
-        # Check timing consistency
-        expected_time = 0.0
-        for i, segment in enumerate(script.segments):
-            if abs(segment.start_time - expected_time) > 0.1:  # Allow small floating point errors
-                validation_results["warnings"].append(f"Segment {i} timing gap: expected {expected_time:.1f}, got {segment.start_time:.1f}")
+            # Use existing video processing function
+            base64_video = extract_and_downscale_scene(
+                input_path,
+                start_time,
+                start_time + duration,
+                target_width=target_width
+            )
             
-            if segment.duration <= 0:
-                validation_results["errors"].append(f"Segment {i} has invalid duration: {segment.duration}")
-                validation_results["valid"] = False
-            
-            expected_time = segment.end_time
-        
-        # Check video assignments
-        video_ids = set()
-        for i, segment in enumerate(script.segments):
-            if not segment.assigned_video_id:
-                validation_results["errors"].append(f"Segment {i} has no video assignment")
-                validation_results["valid"] = False
+            if base64_video:
+                return base64_video
             else:
-                video_ids.add(segment.assigned_video_id)
-            
-            if segment.assigned_video_duration <= 0:
-                validation_results["errors"].append(f"Segment {i} has invalid video duration: {segment.assigned_video_duration}")
-                validation_results["valid"] = False
-        
-        # Calculate statistics
-        validation_results["statistics"] = {
-            "total_segments": len(script.segments),
-            "total_duration": script.total_duration,
-            "unique_videos": len(video_ids),
-            "average_segment_duration": script.total_duration / len(script.segments),
-            "transition_types": {}
-        }
-        
-        # Count transition types
-        for segment in script.segments:
-            transition = segment.transition_type
-            validation_results["statistics"]["transition_types"][transition] = \
-                validation_results["statistics"]["transition_types"].get(transition, 0) + 1
-        
-        return validation_results 
+                logger.warning(f"⚠️ Failed to extract clip: {start_time}-{start_time + duration}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to extract and format clip: {e}")
+            return None
+    
+    async def _create_placeholder_clips(self, content_matches: List[ContentMatch], 
+                                      count: int) -> List[VideoClip]:
+        """Create placeholder clips without base64 data."""
+        clips = []
+        for i, match in enumerate(content_matches[:count]):
+            clips.append(VideoClip(
+                video_id=match.video_id,
+                start=match.start_time,
+                end=match.end_time,
+                video=None  # No base64 data
+            ))
+        return clips 

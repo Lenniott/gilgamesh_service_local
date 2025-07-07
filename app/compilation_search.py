@@ -138,7 +138,7 @@ class CompilationSearchEngine:
                 collection_name=self.transcript_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.3,  # Lower threshold for more permissive matching
+                score_threshold=0.1,  # Much lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -192,7 +192,7 @@ class CompilationSearchEngine:
                 collection_name=self.scene_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.3,  # Lower threshold for more permissive matching
+                score_threshold=0.1,  # Much lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -245,25 +245,26 @@ class CompilationSearchEngine:
                 if duration_diff > max_deviation:
                     continue
             
-            # Filter by required tags
-            if query.tags_filter:
+            # Filter by required tags (if any tags exist)
+            if query.tags_filter and match.tags:  # Only filter if both exist
                 match_tags_lower = [tag.lower() for tag in match.tags]
                 required_tags_lower = [tag.lower() for tag in query.tags_filter]
                 
                 # Check if at least one required tag is present
                 if not any(req_tag in match_tags_lower for req_tag in required_tags_lower):
-                    continue
+                    # Add small penalty instead of filtering out
+                    match.relevance_score *= 0.8
             
-            # Filter by exclude terms
+            # Filter by exclude terms (with penalty instead of hard filter)
             if query.exclude_terms:
                 content_lower = match.content_text.lower()
                 tags_lower = [tag.lower() for tag in match.tags]
                 
-                # Skip if any exclude term is found
+                # Apply penalty if exclude terms are found
                 if any(term.lower() in content_lower for term in query.exclude_terms):
-                    continue
+                    match.relevance_score *= 0.5
                 if any(term.lower() in tags_lower for term in query.exclude_terms):
-                    continue
+                    match.relevance_score *= 0.5
             
             # Calculate enhanced relevance score
             enhanced_score = self._calculate_enhanced_score(match, query)

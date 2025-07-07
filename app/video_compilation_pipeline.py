@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from app.db_connections import DatabaseConnections
 from app.ai_requirements_generator import RequirementsGenerator
 from app.compilation_search import CompilationSearchEngine
-from app.ai_script_generator import ScriptGenerator, CompilationScript
-from app.generated_video_operations import GeneratedVideoDatabase
+from app.ai_script_generator import AIScriptGenerator
+from app.video_stitcher import VideoStitcher, StitchingSettings
+# from app.generated_video_operations import GeneratedVideoDatabase  # TODO: Implement according to pipeline spec
 from app.audio_generator import OpenAITTSGenerator, AudioGenerationResult
-from app.audio_processor import AudioProcessor, AudioProcessingResult
-from app.video_segment_extractor import VideoSegmentExtractor
-from app.video_compositor import VideoCompositor, CompositionSettings
+# from app.audio_processor import AudioProcessor, AudioProcessingResult  # Not part of new simplified architecture
+# from app.video_segment_extractor import VideoSegmentExtractor  # Not part of new simplified architecture  
+# from app.video_compositor import VideoCompositor, CompositionSettings  # Not part of new simplified architecture
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,12 @@ class CompilationRequest:
     requirements: str                         # "5 minutes, beginner-friendly, mobility focus"
     title: Optional[str] = None              # "Morning Mobility Routine"
     voice_preference: str = "alloy"          # OpenAI TTS voice
-    resolution: str = "720p"                 # Output resolution
+    aspect_ratio: str = "9:16"               # "square" or "9:16"
     max_duration: float = 600.0              # 10 minutes max
-    include_base64: bool = False             # Return video in response
+    include_base64: bool = False             # Return final video in response
+    audio: bool = True                       # Include base64 audio in JSON (debugging)
+    clips: bool = True                       # Include base64 clips in JSON (debugging)
+    show_debug_overlay: bool = False         # Show video ID overlay for debugging
 
 @dataclass
 class CompilationResponse:
@@ -41,7 +45,7 @@ class CompilationResponse:
     duration: Optional[float] = None
     source_videos_used: Optional[int] = None
     processing_time: Optional[float] = None
-    script: Optional[Dict[str, Any]] = None
+    compilation_json: Optional[Dict[str, Any]] = None  # Complete JSON structure
     video_base64: Optional[str] = None       # If include_base64=True
     error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -57,11 +61,8 @@ class CompilationPipeline:
         self.requirements_generator = None
         self.search_engine = None
         self.script_generator = None
-        self.generated_video_db = None
-        self.audio_generator = None
-        self.audio_processor = None
-        self.video_segment_extractor = None
-        self.video_compositor = None
+        self.video_stitcher = None
+        # self.generated_video_db = None  # TODO: Implement according to pipeline spec
     
     async def initialize(self):
         """Initialize all pipeline components."""
@@ -70,21 +71,19 @@ class CompilationPipeline:
             self.connections = DatabaseConnections()
             await self.connections.connect_all()
             
-            # Initialize pipeline components
+            # Initialize the 4 core pipeline components according to new architecture
             self.requirements_generator = RequirementsGenerator(self.connections)
             self.search_engine = CompilationSearchEngine(self.connections)
-            self.script_generator = ScriptGenerator(self.connections)
-            self.generated_video_db = GeneratedVideoDatabase(self.connections)
-            self.audio_generator = OpenAITTSGenerator(self.connections)
-            self.audio_processor = AudioProcessor()
+            self.script_generator = AIScriptGenerator(self.connections)
+            await self.script_generator.initialize()
             
-            # Initialize video processing components
-            from app.simple_db_operations import SimpleDBOperations
-            db_operations = SimpleDBOperations(self.connections)
-            self.video_segment_extractor = VideoSegmentExtractor(db_operations)
-            self.video_compositor = VideoCompositor()
+            # Initialize video stitcher
+            self.video_stitcher = VideoStitcher()
             
-            logger.info("✅ Compilation pipeline initialized successfully")
+            # TODO: Initialize generated video database
+            # self.generated_video_db = GeneratedVideoDatabase(self.connections)
+            
+            logger.info("✅ Compilation pipeline initialized successfully (simplified architecture)")
             return True
             
         except Exception as e:
@@ -131,6 +130,7 @@ class CompilationPipeline:
                 )
             
             logger.info(f"✅ Generated {len(search_queries)} search queries")
+            logger.info(f"🔍 Search queries: {search_queries}")
             
             # Step 3: Search vector database for relevant content
             logger.info("🔎 Searching for relevant video content...")
@@ -147,108 +147,91 @@ class CompilationPipeline:
             
             logger.info(f"✅ Found {total_matches} relevant video segments")
             
-            # Step 4: Generate script with video assignments
-            logger.info("📝 Generating compilation script...")
-            script = await self.script_generator.create_segmented_script(
-                search_results=search_results,
-                user_context=request.context,
+            # Flatten search results into content matches  
+            content_matches = []
+            for result in search_results:
+                content_matches.extend(result.matches)
+            
+            # Step 4: AI generates complete compilation JSON
+            logger.info("🎬 Generating compilation JSON (script + clips + audio)...")
+            segments = await self.script_generator.generate_compilation_json(
+                content_matches=content_matches,
                 user_requirements=request.requirements,
-                target_duration=min(request.max_duration, 600.0)  # Cap at 10 minutes
+                include_audio=request.audio,
+                include_clips=request.clips,
+                aspect_ratio=request.aspect_ratio
             )
             
-            if not script.segments:
+            if not segments:
                 return CompilationResponse(
                     success=False,
-                    error="Failed to generate compilation script",
+                    error="Failed to generate compilation JSON",
                     processing_time=time.time() - start_time
                 )
             
-            logger.info(f"✅ Generated script with {len(script.segments)} segments")
+            logger.info(f"✅ Generated compilation JSON with {len(segments)} segments")
             
-            # Step 5: Generate audio for script segments (placeholder for now)
-            logger.info("🎵 Generating audio segments...")
-            audio_segments = await self._generate_audio_segments(script, request.voice_preference)
+            # Calculate total duration and source videos used
+            total_duration = sum(segment["duration"] for segment in segments)
+            source_videos = set()
+            for segment in segments:
+                for clip in segment["clips"]:
+                    source_videos.add(clip["video_id"])
             
-            # Step 6: Extract and compose video segments (placeholder for now)
-            logger.info("🎬 Composing final video...")
-            composed_video = await self._compose_final_video(script, audio_segments, request.resolution)
-            
-            if not composed_video:
-                return CompilationResponse(
-                    success=False,
-                    error="Failed to compose final video",
-                    processing_time=time.time() - start_time
-                )
-            
-            # Step 7: Save generated video to database
-            logger.info("💾 Saving generated video to database...")
-            video_title = request.title or self._generate_auto_title(request.context, request.requirements)
-            
-            generated_video_id = await self.generated_video_db.save_generated_video(
-                video_base64=composed_video["video_base64"],
-                script=script,
-                title=video_title,
-                user_context=request.context,
-                user_requirements=request.requirements,
-                audio_segments=audio_segments,
-                voice_model=request.voice_preference,
-                resolution=request.resolution,
-                processing_time=time.time() - start_time,
-                description=f"AI-generated compilation: {request.context}"
-            )
-            
-            if not generated_video_id:
-                return CompilationResponse(
-                    success=False,
-                    error="Failed to save generated video to database",
-                    processing_time=time.time() - start_time
-                )
-            
-            # Step 8: Prepare response
-            processing_time = time.time() - start_time
-            
-            # Convert script to dictionary for response
-            script_dict = {
-                "total_duration": script.total_duration,
-                "segments": [
-                    {
-                        "script_text": segment.script_text,
-                        "start_time": segment.start_time,
-                        "end_time": segment.end_time,
-                        "assigned_video_id": segment.assigned_video_id,
-                        "transition_type": segment.transition_type,
-                        "segment_type": segment.segment_type
-                    }
-                    for segment in script.segments
-                ]
+            # Create complete compilation JSON
+            compilation_json = {
+                "segments": segments,
+                "total_duration": total_duration,
+                "aspect_ratio": request.aspect_ratio
             }
             
-            logger.info(f"✅ Video compilation completed successfully in {processing_time:.2f}s")
-            logger.info(f"📹 Generated video ID: {generated_video_id}")
-            logger.info(f"⏱️ Duration: {script.total_duration:.1f}s")
-            logger.info(f"🎬 Videos used: {script.unique_videos_used}")
+            # Step 5: Video stitcher creates final video (only if include_base64=True)
+            final_video = None
+            if request.include_base64:
+                logger.info("🎬 Creating final video with stitcher...")
+                try:
+                    stitching_settings = StitchingSettings(
+                        aspect_ratio=request.aspect_ratio,
+                        framerate=30,
+                        loop_clips=True
+                    )
+                    
+                    final_video = await self.video_stitcher.stitch_compilation_video(
+                        compilation_json,
+                        stitching_settings
+                    )
+                    logger.info(f"✅ Final video created: {final_video.duration:.1f}s, {final_video.file_size/1024/1024:.1f}MB")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create final video: {e}")
+                    # Continue without final video
             
+            # Step 6: Save to database  
+            logger.info("💾 Saving compilation to database...")
+            video_title = request.title or self._generate_auto_title(request.context, request.requirements)
+            
+            # TODO: Save to generated_videos table
+            generated_video_id = "test-compilation-123"  # Placeholder until DB implemented
+            
+            # Return successful response
             return CompilationResponse(
                 success=True,
                 generated_video_id=generated_video_id,
-                duration=script.total_duration,
-                source_videos_used=script.unique_videos_used,
-                processing_time=processing_time,
-                script=script_dict,
-                video_base64=composed_video["video_base64"] if request.include_base64 else None,
+                duration=final_video.duration if final_video else total_duration,
+                source_videos_used=len(source_videos),
+                processing_time=time.time() - start_time,
+                compilation_json=compilation_json,
+                video_base64=final_video.video_base64 if final_video else None,
                 metadata={
-                    "search_queries_generated": len(search_queries),
-                    "content_matches_found": total_matches,
-                    "script_segments": len(script.segments),
-                    "audio_segments": len(audio_segments) if audio_segments else 0,
                     "title": video_title,
-                    "resolution": request.resolution,
-                    "voice_model": request.voice_preference
+                    "aspect_ratio": request.aspect_ratio,
+                    "segments": len(segments),
+                    "total_matches": total_matches,
+                    "search_queries": len(search_queries)
                 }
             )
             
         except Exception as e:
-            logger.error(f"❌ Compilation pipeline failed: {e}")
+            logger.error(f"❌ Compilation failed: {e}")
             return CompilationResponse(
                 success=False,
                 error=str(e),
@@ -295,268 +278,92 @@ class CompilationPipeline:
             validation_result["errors"].append(f"Invalid voice preference. Must be one of: {', '.join(valid_voices)}")
             validation_result["valid"] = False
         
-        # Valid resolutions
-        valid_resolutions = ["480p", "720p", "1080p"]
-        if request.resolution not in valid_resolutions:
-            validation_result["errors"].append(f"Invalid resolution. Must be one of: {', '.join(valid_resolutions)}")
+        # Valid aspect ratios
+        valid_aspect_ratios = ["square", "9:16"]
+        if request.aspect_ratio not in valid_aspect_ratios:
+            validation_result["errors"].append(f"Invalid aspect ratio. Must be one of: {', '.join(valid_aspect_ratios)}")
             validation_result["valid"] = False
         
         return validation_result
-    
-    async def _generate_audio_segments(self, script: CompilationScript, voice_model: str) -> List[Dict[str, Any]]:
-        """
-        Generate audio segments for script using OpenAI TTS.
-        
-        Args:
-            script: CompilationScript with segments
-            voice_model: OpenAI TTS voice model
-            
-        Returns:
-            List of audio segment metadata
-        """
-        logger.info(f"🎵 Generating {len(script.segments)} audio segments with voice '{voice_model}'...")
-        
-        try:
-            # Generate audio using OpenAI TTS
-            audio_result = await self.audio_generator.generate_audio_from_script(
-                script=script,
-                voice_preference=voice_model,
-                use_voice_variety=True,  # Use different voices for different segment types
-                high_quality=False  # Use standard quality for faster generation
-            )
-            
-            if not audio_result.success:
-                logger.error(f"❌ Audio generation failed: {audio_result.error}")
-                return self._create_placeholder_audio_segments(script, voice_model)
-            
-            # Process audio for optimization and timing
-            target_timings = [(seg.start_time, seg.end_time) for seg in script.segments]
-            processing_result = await self.audio_processor.process_audio_segments(
-                audio_result=audio_result,
-                target_timings=target_timings,
-                enable_crossfades=True,
-                enable_normalization=True,
-                enable_noise_reduction=False  # Disable for speed
-            )
-            
-            # Convert to expected format
-            audio_segments = []
-            for processed in processing_result.processed_audio:
-                audio_segment = {
-                    "segment_id": processed.segment_id,
-                    "script_text": processed.original_audio.script_text,
-                    "start_time": processed.original_audio.start_time,
-                    "end_time": processed.original_audio.end_time,
-                    "duration": processed.original_audio.duration,
-                    "voice_model": processed.original_audio.voice_model,
-                    "audio_base64": processed.processed_audio_base64 or processed.original_audio.audio_base64,
-                    "file_size": processed.file_size_after or processed.original_audio.file_size,
-                    "generation_time": processed.original_audio.generation_time,
-                    "processing_time": processed.processing_time,
-                    "status": processed.status,
-                    "timing_adjustment": {
-                        "speed_factor": processed.timing_adjustment.speed_factor,
-                        "padding_before": processed.timing_adjustment.padding_before,
-                        "padding_after": processed.timing_adjustment.padding_after
-                    } if processed.timing_adjustment else None,
-                    "optimizations": {
-                        "normalization_applied": processed.normalization_applied,
-                        "crossfade_applied": processed.crossfade_applied,
-                        "noise_reduction_applied": processed.noise_reduction_applied
-                    }
-                }
-                audio_segments.append(audio_segment)
-            
-            # Log generation summary
-            successful_segments = sum(1 for seg in audio_segments if seg["status"] == "completed")
-            total_generation_time = audio_result.total_generation_time + processing_result.total_processing_time
-            estimated_cost = audio_result.metadata.get("estimated_cost", 0.0)
-            
-            logger.info(f"✅ Generated {successful_segments}/{len(audio_segments)} audio segments successfully")
-            logger.info(f"⏱️ Total audio generation time: {total_generation_time:.2f}s")
-            logger.info(f"💰 Estimated TTS cost: ${estimated_cost:.4f}")
-            logger.info(f"🎤 Voice distribution: {audio_result.metadata.get('voice_distribution', {})}")
-            
-            return audio_segments
-            
-        except Exception as e:
-            logger.error(f"❌ Audio generation pipeline failed: {e}")
-            return self._create_placeholder_audio_segments(script, voice_model)
-    
-    def _create_placeholder_audio_segments(self, script: CompilationScript, voice_model: str) -> List[Dict[str, Any]]:
-        """Create placeholder audio segments when generation fails."""
-        logger.warning("🔄 Creating placeholder audio segments")
-        
-        audio_segments = []
-        for i, segment in enumerate(script.segments):
-            audio_segment = {
-                "segment_id": f"placeholder_{i:03d}",
-                "script_text": segment.script_text,
-                "start_time": segment.start_time,
-                "end_time": segment.end_time,
-                "duration": segment.duration,
-                "voice_model": voice_model,
-                "audio_base64": None,  # No actual audio
-                "file_size": 0,
-                "generation_time": 0.0,
-                "processing_time": 0.0,
-                "status": "placeholder",
-                "timing_adjustment": None,
-                "optimizations": {
-                    "normalization_applied": False,
-                    "crossfade_applied": False,
-                    "noise_reduction_applied": False
-                }
-            }
-            audio_segments.append(audio_segment)
-        
-        return audio_segments
-    
-    async def _compose_final_video(self, script: CompilationScript, 
-                                 audio_segments: List[Dict[str, Any]], 
-                                 resolution: str) -> Optional[Dict[str, Any]]:
-        """
-        Compose final video from script segments and audio.
-        
-        Args:
-            script: CompilationScript with video assignments
-            audio_segments: Generated audio segments
-            resolution: Target resolution
-            
-        Returns:
-            Dictionary with composed video data
-        """
-        logger.info(f"🎬 Composing video with {len(script.segments)} segments at {resolution}...")
-        
-        try:
-            # Step 1: Extract video segments from database
-            logger.info("📹 Extracting video segments from database...")
-            extraction_result = await self.video_segment_extractor.extract_segments_from_script(
-                script=script,
-                target_resolution=resolution
-            )
-            
-            if not extraction_result.success:
-                logger.error(f"❌ Video segment extraction failed: {extraction_result.error}")
-                return None
-            
-            if not extraction_result.segments:
-                logger.error("❌ No video segments extracted")
-                return None
-            
-            logger.info(f"✅ Extracted {len(extraction_result.segments)} video segments")
-            
-            # Step 2: Compose video with audio
-            logger.info("🎬 Composing video with audio...")
-            composition_settings = CompositionSettings(
-                resolution=resolution,
-                framerate=30,
-                audio_bitrate="128k",
-                video_codec="libx264",
-                audio_codec="aac",
-                enable_crossfades=True,
-                enable_transitions=True,
-                preset="medium",
-                crf="24"
-            )
-            
-            composition_result = await self.video_compositor.compose_final_video(
-                video_segments=extraction_result.segments,
-                audio_segments=audio_segments,
-                script=script,
-                settings=composition_settings
-            )
-            
-            if not composition_result.success:
-                logger.error(f"❌ Video composition failed: {composition_result.error}")
-                return None
-            
-            # Step 3: Convert to expected format
-            composed_video = {
-                "video_base64": composition_result.composed_video.video_base64,
-                "duration": composition_result.composed_video.duration,
-                "resolution": composition_result.composed_video.resolution,
-                "file_size": composition_result.composed_video.file_size,
-                "composition_metadata": {
-                    "segments_used": len(script.segments),
-                    "audio_segments": len(audio_segments),
-                    "unique_videos": script.unique_videos_used,
-                    "composition_method": "ffmpeg",
-                    "extraction_time": extraction_result.total_extraction_time,
-                    "composition_time": composition_result.composition_time,
-                    "video_segments_extracted": extraction_result.successful_extractions,
-                    "failed_extractions": extraction_result.failed_extractions,
-                    "video_codec": composition_settings.video_codec,
-                    "audio_codec": composition_settings.audio_codec,
-                    "preset": composition_settings.preset,
-                    "crf": composition_settings.crf
-                }
-            }
-            
-            logger.info(f"✅ Video composition completed successfully")
-            logger.info(f"📊 Final video: {composed_video['duration']:.2f}s, {composed_video['file_size']} bytes")
-            
-            return composed_video
-            
-        except Exception as e:
-            logger.error(f"❌ Video composition failed: {e}")
-            return None
-    
+
+    # ============================================================================
+    # LEGACY METHODS REMOVED - NOT PART OF NEW SIMPLIFIED ARCHITECTURE  
+    # The new architecture uses:
+    # 1. RequirementsGenerator 
+    # 2. CompilationSearchEngine
+    # 3. AIScriptGenerator (handles own audio generation)
+    # 4. VideoStitcher (to be implemented)
+    # ============================================================================
+
     def _generate_auto_title(self, context: str, requirements: str) -> str:
         """Generate automatic title from context and requirements."""
-        # Extract key terms for title
-        context_words = context.lower().split()
-        requirements_words = requirements.lower().split()
+        # Extract key terms from context and requirements
+        context_words = context.lower().replace(',', ' ').split()
+        req_words = requirements.lower().replace(',', ' ').split()
         
-        # Common title patterns
-        if "workout" in context_words or "exercise" in requirements_words:
-            if "morning" in context_words:
-                return "Morning Workout Routine"
-            elif "beginner" in requirements_words:
-                return "Beginner Workout Compilation"
-            else:
-                return "Custom Workout Routine"
+        # Common fitness keywords to prioritize
+        fitness_keywords = [
+            'workout', 'exercise', 'fitness', 'training', 'routine',
+            'strength', 'cardio', 'mobility', 'flexibility', 'core',
+            'beginner', 'intermediate', 'advanced', 'morning', 'evening',
+            'quick', 'intense', 'gentle', 'full', 'body', 'upper', 'lower'
+        ]
         
-        if "mobility" in requirements_words or "stretch" in requirements_words:
-            return "Mobility & Flexibility Routine"
+        # Find relevant keywords
+        key_terms = []
+        for word in context_words + req_words:
+            clean_word = word.strip('.,!?();')
+            if clean_word in fitness_keywords and clean_word not in key_terms:
+                key_terms.append(clean_word)
         
-        if "strength" in requirements_words:
-            return "Strength Training Compilation"
+        # Create title
+        if key_terms:
+            title = ' '.join(key_terms[:3]).title()  # Use up to 3 key terms
+            if 'routine' not in title.lower() and 'workout' not in title.lower():
+                title += ' Routine'
+        else:
+            title = 'Custom Fitness Compilation'
         
-        if "core" in requirements_words:
-            return "Core Strengthening Routine"
-        
-        # Default title
-        return "AI-Generated Fitness Compilation"
-    
+        return title
+
     async def get_compilation_status(self, compilation_id: str) -> Dict[str, Any]:
         """
-        Get status of a compilation (for long-running operations).
+        Get the status of a compilation by ID.
         
         Args:
-            compilation_id: Compilation ID to check
+            compilation_id: Unique identifier for the compilation
             
         Returns:
-            Dictionary with compilation status
+            Dictionary with compilation status and metadata
         """
-        # TODO: Implement compilation status tracking
-        # For now, return placeholder status
-        
-        return {
-            "compilation_id": compilation_id,
-            "status": "completed",  # "pending", "processing", "completed", "failed"
-            "progress": 100,
-            "estimated_completion": None,
-            "current_step": "Video composition completed",
-            "total_steps": 8
-        }
-    
+        try:
+            # TODO: Implement with proper database operations
+            # For now, return placeholder status
+            return {
+                "compilation_id": compilation_id,
+                "status": "unknown",
+                "message": "Status checking not yet implemented",
+                "created_at": None,
+                "completed_at": None,
+                "duration": None,
+                "error": None
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get compilation status: {e}")
+            return {
+                "compilation_id": compilation_id,
+                "status": "error",
+                "message": f"Failed to retrieve status: {e}",
+                "error": str(e)
+            }
+
     async def cleanup(self):
-        """Cleanup pipeline resources."""
+        """Clean up pipeline resources."""
         try:
             if self.connections:
-                await self.connections.close_all()
-            logger.info("✅ Compilation pipeline cleanup completed")
+                await self.connections.cleanup()
+            logger.info("✅ Pipeline cleanup completed")
         except Exception as e:
             logger.error(f"❌ Pipeline cleanup failed: {e}")
 

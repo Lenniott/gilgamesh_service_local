@@ -56,9 +56,11 @@ class CompileRequest(BaseModel):
     requirements: str                         # "5 minutes, beginner-friendly, mobility focus"
     title: Optional[str] = None              # "Morning Mobility Routine"
     voice_preference: str = "alloy"          # OpenAI TTS voice
-    resolution: str = "720p"                 # Output resolution
+    aspect_ratio: str = "9:16"               # "square" or "9:16"
     max_duration: float = 600.0              # 10 minutes max
-    include_base64: bool = False             # Return video in response
+    include_base64: bool = False             # Return final video in response
+    audio: bool = True                       # Include base64 audio in JSON (debugging)
+    clips: bool = True                       # Include base64 clips in JSON (debugging)
 
 class QdrantIndexRequest(BaseModel):
     collections: Optional[list] = None  # Specific collections to index, or None for default
@@ -224,10 +226,14 @@ async def compile_video(request: CompileRequest):
     This endpoint:
     1. Analyzes user context and requirements
     2. Searches existing video database for relevant content
-    3. Generates a structured script with video assignments
-    4. Creates audio narration using OpenAI TTS
-    5. Composes final video with synchronized audio and video segments
-    6. Saves the generated video to the database
+    3. AI generates compilation JSON (script + clips + audio)
+    4. Video stitcher processes JSON into final video (if include_base64=True)
+    5. Saves the generated video to the database
+    
+    Debugging options:
+    - audio=false: Skip audio generation for faster testing
+    - clips=false: Skip video clip extraction for faster testing
+    - include_base64=false: Skip final video composition for JSON testing
     """
     async with semaphore:
         try:
@@ -240,9 +246,11 @@ async def compile_video(request: CompileRequest):
                 requirements=request.requirements,
                 title=request.title,
                 voice_preference=request.voice_preference,
-                resolution=request.resolution,
+                aspect_ratio=request.aspect_ratio,
                 max_duration=request.max_duration,
-                include_base64=request.include_base64
+                include_base64=request.include_base64,
+                audio=request.audio,
+                clips=request.clips
             )
             
             # Process the compilation request
@@ -255,7 +263,7 @@ async def compile_video(request: CompileRequest):
                     "duration": result.duration,
                     "source_videos_used": result.source_videos_used,
                     "processing_time": result.processing_time,
-                    "script": result.script,
+                    "compilation_json": result.compilation_json,
                     "video_base64": result.video_base64,
                     "metadata": result.metadata
                 }

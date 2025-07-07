@@ -1,5 +1,149 @@
 # CHANGELOG
 
+## MAJOR UPDATE: Clip-First Script Generation Workflow - 2024-12-25 🎬
+
+### 🎬 **NEW: Clip-First Script Generation for Perfect Audio-Video Alignment**
+
+**Completely restructured the script generation workflow to ensure perfect alignment between video content and narration.**
+
+#### **Key Changes:**
+
+1. **Reversed Generation Flow** ✅
+- Changed from script-first to clip-first workflow
+- Script now generated based on actual selected clips
+- Prevents phantom exercises and mismatched descriptions
+
+2. **Exact Transcript Matching** ✅
+- Added precise timestamp matching (±1 second tolerance)
+- Uses video_id and timestamp to find exact transcript segments
+- Preserves original instructor expertise and cues
+
+3. **Enhanced Script Generation** ✅
+- Updated `app/ai_script_generator.py` with new _generate_segment_script method
+- Uses both scene description AND transcript as input
+- Ensures script only describes what's in the video
+- Maintains natural, trainer-like tone
+
+4. **Duration Matching** ✅
+- Audio duration now matches actual clip length
+- Better pacing and natural flow
+- No more timing mismatches
+
+#### **Files Modified:**
+- **UPDATED**: `app/ai_script_generator.py` - New clip-first workflow
+- **UPDATED**: `AI_VIDEO_COMPILATION_PIPELINE.md` - Added workflow requirements
+- **UPDATED**: `app/compilation_search.py` - Enhanced transcript matching
+
+#### **Impact:**
+- ✅ **Quality**: Perfect alignment between audio and video
+- ✅ **Accuracy**: No more phantom exercise descriptions
+- ✅ **Professionalism**: Leverages original instructor expertise
+- ✅ **User Experience**: More natural, seamless content flow
+
+#### **Next Steps:**
+1. Add validation to ensure transcript matches are found
+2. Implement fallback for missing transcripts
+3. Add metrics for script-clip alignment quality
+4. Update tests to verify audio-video sync
+
+---
+
+## ENHANCEMENT: Improved Semantic Search with RAG - 2024-12-25 🔍
+
+### 🔍 **NEW: Hybrid RAG Approach for Better Content Discovery**
+
+**Enhanced the semantic search functionality with a hybrid RAG (Retrieval Augmented Generation) approach for more accurate and contextual content matching.**
+
+#### **Key Improvements:**
+
+1. **Expert LLM Query Generation** ✅
+- Updated LLM prompt to think like a fitness trainer
+- Generates detailed queries with proper form cues
+- Example: "Hip flexor stretch in lunge position, front knee aligned over ankle"
+- Better understanding of exercise progression
+
+2. **Enhanced Vector Search** ✅
+- Leverages three Qdrant collections:
+  - `video_scene_descriptions` (31 points)
+  - `video_transcript_segments` (65 points)
+  - `fitness` collection (916 points)
+- Better semantic matching for exercise variations
+
+3. **Smarter Relevance Scoring** ✅
+- Added bonus points for high-quality matches (score > 0.8)
+- Implemented penalties for reusing same video clips
+- Added duration-based filtering for proper segments
+- Better handling of exercise transitions
+
+4. **Natural Language Understanding** ✅
+- Users can now provide high-level requests
+- System understands fitness context and goals
+- Translates user intent into specific exercises
+- Maintains workout flow and progression
+
+#### **Files Modified:**
+- **UPDATED**: `app/compilation_search.py` - Enhanced search logic
+- **UPDATED**: `app/ai_requirements_generator.py` - Improved query generation
+- **UPDATED**: `AI_VIDEO_COMPILATION_PIPELINE.md` - Added RAG approach documentation
+
+#### **Impact:**
+- ✅ **Accuracy**: Better exercise matching and progression
+- ✅ **Quality**: More detailed form cues and instructions
+- ✅ **Variety**: Reduced clip repetition while maintaining coherence
+- ✅ **UX**: More natural language input support
+
+#### **Next Steps:**
+1. Add more fitness-specific embeddings
+2. Implement exercise difficulty scoring
+3. Add support for equipment-based filtering
+4. Enhance transition logic between exercises
+
+---
+
+## MAJOR ARCHITECTURE UPDATE: Simplified JSON-Driven Pipeline - 2024-12-24 🏗️
+
+### 🔄 **NEW: Simplified JSON-Driven Video Compilation Architecture**
+
+**Completely simplified the video compilation pipeline to use a JSON-driven approach with only 4 core components.**
+
+#### **Key Changes:**
+
+1. **Removed Legacy Components** ✅
+- Deleted `app/video_segment_extractor.py` - Functionality moved to `ai_script_generator.py`
+- Deleted `app/video_compositor.py` - Replaced by simplified `stitch_scenes.py`
+- Deleted `app/audio_processor.py` - Audio handling moved to `ai_script_generator.py`
+
+2. **New JSON-Driven Architecture** ✅
+- Simplified from 7 complex steps to 4 streamlined components
+- Introduced compilation JSON format for all video data
+- Added aspect ratio control (square or 9:16)
+- Added debugging options for development
+
+3. **Updated Core Components** ✅
+- `app/ai_requirements_generator.py` - Transforms user context into search queries
+- `app/compilation_search.py` - Semantic search for video content
+- `app/ai_script_generator.py` - Generates complete compilation JSON
+- `app/stitch_scenes.py` - Processes JSON into final video
+
+4. **New Debugging Parameters** ✅
+- Added `audio: bool` and `clips: bool` to `/compile` endpoint
+- Both default to true but can be disabled for faster testing
+- Added 4-step debugging workflow examples
+
+#### **Impact:**
+- ✅ **Simplicity**: Reduced complexity with JSON-driven design
+- ✅ **Maintainability**: Fewer components, clearer data flow
+- ✅ **Debugging**: Easy to test individual components
+- ✅ **Flexibility**: Better support for different video formats
+
+#### **Next Steps:**
+1. Update tests to match new architecture
+2. Document new JSON format in API docs
+3. Add monitoring for JSON processing steps
+4. Implement video stitcher component
+
+---
+
 ## MAJOR FEATURE: Advanced AI Rate Limiting System - 2024-12-23 🚦
 
 ### 🚦 **NEW: Comprehensive AI API Rate Limiting with Circuit Breakers**

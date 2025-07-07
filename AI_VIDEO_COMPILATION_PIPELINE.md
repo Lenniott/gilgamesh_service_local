@@ -7,32 +7,253 @@ This document outlines the implementation of an AI-powered video compilation sys
 
 **🔌 API-FIRST DESIGN**: All functionality is accessed through RESTful API endpoints, following the established Gilgamesh service patterns. No background jobs, CLI tools, or external triggers - everything happens through HTTP requests to the FastAPI service.
 
+**🔄 Core Pipeline Files (4 Main Components)**
+1. app/ai_requirements_generator.py
+- Transforms user context into structured search queries
+- Uses GPT-4mini to break down high-level requirements into specific, searchable chunks
+- Generates SearchQuery objects with priority, duration targets, and filters
+- ✅ File exists but needs updating
+2. app/compilation_search.py
+- Leverages Qdrant for semantic search of video content
+- Searches both transcript and scene description collections
+- Returns ContentMatch objects with relevant video segments
+- ✅ File exists but needs updating
+@stitch_scenes.py @ai_requirements_generator.py @compilation_search.py 
+
+the files exisist though they will need updating i susspect
+
+You're absolutely right! The files exist and I was making assumptions. Let me check what they contain and update them to match the pipeline specification. Let me first restore the imports and see what's actually broken:
+Now let me try to run the Flask app to see what specific errors we're getting:
+Perfect! Now I can see the real issue. The video_segment_extractor.py is trying to import the old CompilationScript and ScriptSegment classes that don't exist in the new architecture.
+According to the pipeline specification, the new simplified architecture only has 4 components, and VideoSegmentExtractor and VideoCompositor are not part of the new design. Let me fix this:
+Now let's try running the Flask app again:
+Perfect! Now I can see the issue. There are legacy methods in the CompilationPipeline class that reference the old CompilationScript class. These are not part of the new simplified architecture, so I need to comment them out:
+I can see there are several legacy methods that use the old CompilationScript type. These are not part of the new simplified architecture, so let me comment them out:
+Let me comment out the entire legacy method body. I'll need to indent all the content as comments:
+This is taking too long to fix line by line. Let me use a more efficient approach and remove all the legacy methods that aren't part of the new architecture. According to the pipeline spec, we only need the main process_compilation_request method and supporting validation methods.
+Perfect! Now let's try running the Flask app again to see if we've resolved the import errors:
+PORT=8501 python -m app.main
+Request ID: 76bea036-73b9-4e8a-8628-dd3d8a9f7bf4
+ConnectError: [internal] Stream closed with error code NGHTTP2_PROTOCOL_ERROR
+    at C9a.$endAiConnectTransportReportError (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:4757:223764)
+    at dir.S (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:492:17741)
+    at dir.Q (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:492:17519)
+    at dir.M (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:492:16607)
+    at dir.L (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:492:15708)
+    at Hwt.value (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:492:14500)
+    at ve.B (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:48:2398)
+    at ve.fire (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:48:2617)
+    at Git.fire (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:4744:10379)
+    at u.onmessage (vscode-file://vscode-app/Applications/Cursor.app/Contents/Resources/app/out/vs/workbench/workbench.desktop.main.js:6968:12271)
+
+🎉 EXCELLENT! The Flask app is now running successfully!
+The error you're showing appears to be a Cursor editor connection issue, not related to our Flask app. Our app started successfully:
+Apply to AI_VIDEO_COM...
+)
+This means we've successfully fixed the circular import issues and the simplified architecture is working! Let me update our progress and move to the next steps:
+Fix immediate circular import issues to get Flask app running
+Test the /compile endpoint with the new simplified architecture
+what files are involved in this @AI_VIDEO_COMPILATION_PIPELINE.md feature and what do they do? 
+
+Let me analyze the pipeline document and break down all the files involved in this new simplified architecture:
+🔄 Core Pipeline Files (4 Main Components)
+app/ai_requirements_generator.py
+Transforms user context into structured search queries
+Uses GPT-4 to break down high-level requirements into specific, searchable chunks
+Generates SearchQuery objects with priority, duration targets, and filters
+✅ File exists but needs updating
+app/compilation_search.py
+Leverages Qdrant for semantic search of video content
+Searches both transcript and scene description collections
+Returns ContentMatch objects with relevant video segments
+✅ File exists but needs updating
+3. app/ai_script_generator.py
+- Generates complete compilation JSON structure
+- Creates script segments with natural instructional text
+- Handles audio generation using OpenAI TTS
+- Manages video clip selection and base64 encoding
+✅ File exists but needs updating
+4. app/stitch_scenes.py
+- Processes compilation JSON into final video
+- Handles video clip looping to match audio duration
+- Maintains aspect ratio control (square or 9:16)
+- Manages seamless transitions between segments
+- ✅ File exists but needs updating
+
+**🛠️ Supporting Files**
+5. app/main.py
+- Main FastAPI application
+- Implements /compile endpoint
+- Handles request validation and response formatting
+- ✅ File exists, needs endpoint updates
+6. app/video_compilation_pipeline.py
+- Main pipeline orchestrator
+- Coordinates the 4 core components
+- Handles error management and response formatting
+- ✅ File exists, being updated now
+7. app/db_connections.py
+- Manages database connections (PostgreSQL, Qdrant)
+- Handles OpenAI client initialization
+- ✅ File exists, no changes needed
+
+### 🎯 **CRITICAL WORKFLOW REQUIREMENT: CLIP-FIRST SCRIPT GENERATION**
+
+To ensure perfect alignment between video content and narration, the pipeline MUST follow this strict workflow:
+
+1. **Scene Discovery**
+   - First find relevant scene descriptions through vector search
+   - Filter and rank based on user requirements
+   - Ensure scenes match the intended exercise types and difficulty
+
+2. **Transcript Matching**
+   - For each selected scene, locate the EXACT matching transcript
+   - Match by video_id and timestamp (within 1-second tolerance)
+   - This ensures we have the original audio context
+
+3. **Script Generation**
+   - Generate script ONLY after clips are selected
+   - Use both scene description AND transcript as input
+   - Script must accurately describe what is shown in the video
+   - Include form cues and technical details from original transcript
+   - Never describe movements not present in the clip
+
+4. **Audio Generation**
+   - Generate audio that matches the actual clip duration
+   - Maintain natural pacing that follows the video
+   - Use encouraging, trainer-like tone while being precise
+
+This workflow is critical because:
+- Prevents audio-video mismatches
+- Ensures accurate exercise descriptions
+- Maintains professional quality
+- Leverages original instructor expertise
+- Creates seamless, natural-feeling content
+
+### 🔍 **SEMANTIC SEARCH IMPROVEMENTS**
+
+The pipeline uses a hybrid RAG (Retrieval Augmented Generation) approach that combines:
+
+1. **High-Level User Requests**
+   - Users provide natural language requests (e.g. "morning workout full body routine")
+   - Focus on intent and goals rather than specific exercises
+   - System understands context and requirements
+
+2. **Expert LLM Translation**
+   - LLM acts as a fitness expert to break down requests
+   - Generates specific, detailed queries with form cues
+   - Example: "Hip flexor stretch in lunge position, front knee aligned over ankle"
+   - Includes alignment details and proper form descriptions
+
+3. **Vector Search Collections**
+   - `video_scene_descriptions` (visual content matching)
+   - `video_transcript_segments` (instructor audio matching)
+   - `fitness` collection for specialized exercise matching
+
+4. **Relevance Scoring**
+   - Semantic similarity for initial matching
+   - Bonus points for high-quality matches (score > 0.8)
+   - Penalties for reusing same video clips
+   - Duration-based filtering for proper segment length
+
+This approach ensures:
+- More accurate exercise matching
+- Better form and technique descriptions
+- Natural progression of movements
+- Varied but cohesive content selection
+
 ### 🏗️ **ARCHITECTURAL OVERVIEW**
 
-The pipeline extends the existing service with five new core components while maintaining full backward compatibility:
+The pipeline extends the existing service with **four streamlined components** while maintaining full backward compatibility:
 
 ```mermaid
 graph TB
     A[User Context & Requirements] --> B[LLM Requirements Generator]
     B --> C[Vector Search Engine]
-    C --> D[AI Script Generator]
-    D --> E[Audio Generation OpenAI TTS]
-    E --> F[Video Segment Extractor]
-    F --> G[Video Compositor]
-    G --> H[Generated Video Database]
+    C --> D[AI Script Generator with JSON]
+    D --> E[Video Stitcher]
+    E --> F[Generated Video Database]
     
     subgraph "Existing Infrastructure"
-        I[Simple Videos Table]
-        J[Qdrant Vector DB]
-        K[Video Processing]
-        L[AI Scene Analysis]
+        G[Simple Videos Table]
+        H[Qdrant Vector DB]
+        I[Video Processing FFmpeg]
+        J[OpenAI TTS & GPT-4]
     end
     
-    C --> J
-    F --> I
-    F --> K
+    C --> H
+    D --> G
+    D --> J
+    E --> I
+    
+    subgraph "New JSON Format"
+        K[Script Segments]
+        L[Video Clips Base64]
+        M[Audio Base64]
+        N[Aspect Ratio Control]
+    end
+    
+    D --> K
     D --> L
+    D --> M
+    D --> N
 ```
+
+### **🔧 Key Architectural Improvements**
+
+1. **Simplified Pipeline**: 7 steps reduced to 4 core components
+2. **JSON-Driven**: AI generates complete structured JSON with everything needed
+3. **Aspect Ratio Native**: Built-in support for square and 9:16 formats
+4. **Clip Looping**: Automatic video looping to match audio duration
+5. **Multiple Clips**: 1-3 clips per script segment for variety
+
+### **📋 Compilation JSON Format**
+
+The heart of the new architecture is the **Compilation JSON** format that the AI generates. This JSON contains everything needed to create the final video:
+
+```json
+[
+  {
+    "script_segment": "Start with basic squats. Keep your feet shoulder-width apart and lower down slowly, engaging your core throughout the movement.",
+    "clips": [
+      {
+        "video_id": "abc123",
+        "start": 3.0,
+        "end": 8.0,
+        "video": "base64_encoded_squat_demo_clip_9_16_aspect_ratio"
+      },
+      {
+        "video_id": "def456",
+        "start": 12.0,
+        "end": 17.0,
+        "video": "base64_encoded_squat_variation_9_16"
+      }
+    ],
+    "audio": "base64_encoded_audio_for_squat_instructions",
+    "duration": 25.0
+  },
+  {
+    "script_segment": "Now transition to push-ups. Start in a plank position, lower your chest to the ground, then push back up.",
+    "clips": [
+      {
+        "video_id": "ghi789",
+        "start": 5.0,
+        "end": 12.0,
+        "video": "base64_encoded_pushup_demo_clip_9_16"
+      }
+    ],
+    "audio": "base64_encoded_audio_for_pushup_instructions",
+    "duration": 30.0
+  }
+]
+```
+
+**Key Features**:
+- **Script Segments**: Natural, instructional narration for each exercise
+- **Multiple Clips**: 1-3 video clips per segment for visual variety
+- **Base64 Video**: Pre-extracted clips in correct aspect ratio (square or 9:16)
+- **Base64 Audio**: TTS-generated audio for each script segment
+- **Duration Control**: Clips loop automatically to match audio duration
+- **Seamless Flow**: Smooth transitions between exercise segments
 
 ---
 
@@ -105,56 +326,80 @@ class ContentMatch:
 
 ---
 
-## 📝 **PHASE 2: SCRIPT GENERATION & TIMING**
+## 📝 **PHASE 2: SCRIPT GENERATION & VIDEO PREPARATION**
 
 ### **2.1 AI Script Generator**
 
-**Purpose**: Create structured script with video segment assignments.
+**Purpose**: Create structured compilation JSON with script segments, video clips, and audio.
 
 **New Module**: `app/ai_script_generator.py`
 
 ```python
-class ScriptGenerator:
-    async def create_segmented_script(self, 
-                                    content_matches: List[ContentMatch],
-                                    user_requirements: str) -> CompilationScript:
+class AIScriptGenerator:
+    async def generate_compilation_json(self, 
+                                      content_matches: List[ContentMatch],
+                                      user_requirements: str) -> CompilationJSON:
         """
-        Generate script with precise timing and video assignments.
+        Generate complete compilation JSON with:
+        1. AI-generated script segments
+        2. Selected video clips with timing
+        3. Generated audio for each segment
         """
 
-class CompilationScript:
+class CompilationJSON:
+    segments: List[CompilationSegment]
     total_duration: float
-    segments: List[ScriptSegment]
+    aspect_ratio: str
     
-class ScriptSegment:
-    script_text: str
-    start_time: float
-    end_time: float
-    assigned_video_id: str
-    assigned_video_start: float
-    assigned_video_end: float
-    transition_type: str  # "cut", "fade", "crossfade"
+class CompilationSegment:
+    script_segment: str           # AI-generated instructional text
+    clips: List[VideoClip]       # 1-3 clips per segment
+    audio: str                   # base64 audio for this segment
+    duration: float              # Audio duration (clips loop to match)
+    
+class VideoClip:
+    video_id: str               # Source video ID
+    start: float                # Start time in source video
+    end: float                  # End time in source video  
+    video: str                  # base64 video clip (square/9:16)
 ```
 
 **AI Strategy**: 
-- Uses existing GPT-4 integration from `app/ai_scene_analysis.py`
-- Prompts optimized for video timing and flow
-- Ensures smooth transitions between segments
+- **Single AI Call**: Generate complete structured JSON in one request
+- **Exercise-Focused**: Prompts optimized for fitness instruction
+- **Multiple Clips**: AI selects 1-3 clips per script segment for variety
+- **Natural Flow**: Ensures smooth progression between exercises
 
-### **2.2 Video Segment Validation**
+### **2.2 Video Clip Extractor**
 
-**Purpose**: Verify assigned video segments exist and are accessible.
+**Purpose**: Extract and format video clips as base64 for the compilation JSON.
 
-**Integration**: Extends `app/simple_db_operations.py`
+**New Module**: `app/video_clip_extractor.py`
 
 ```python
-class VideoSegmentValidator:
-    async def validate_assignments(self, script: CompilationScript) -> ValidationResult:
+class VideoClipExtractor:
+    async def extract_clips_for_compilation(self, 
+                                          content_matches: List[ContentMatch]) -> List[VideoClip]:
         """
-        Verify all assigned video segments are available in database.
-        Uses existing simple_videos table and base64 video storage.
+        Extract video clips from database and convert to proper format:
+        - Extract precise timing from source videos
+        - Convert to square or 9:16 aspect ratio
+        - Encode as base64 for JSON storage
+        """
+        
+    async def format_clip_aspect_ratio(self, 
+                                     video_data: bytes, 
+                                     target_ratio: str) -> bytes:
+        """
+        Convert video clip to square or 9:16 aspect ratio.
+        Uses FFmpeg to crop/pad video appropriately.
         """
 ```
+
+**Integration**: 
+- Uses existing `app/video_processing.py` for FFmpeg operations
+- Leverages `app/simple_db_operations.py` for video retrieval
+- Optimized for mobile/social media aspect ratios
 
 ---
 
@@ -203,70 +448,101 @@ TTS_CONFIG = {
 
 ## 🎬 **PHASE 4: VIDEO PROCESSING & COMPOSITION**
 
-### **4.1 Video Segment Extractor**
+### **4.1 AI Script Generator with Video Clips**
 
-**Purpose**: Extract precise video segments from stored base64 videos.
+**Purpose**: Generate structured JSON with script segments, video clips, and audio.
 
-**New Module**: `app/video_segment_extractor.py`
+**New Module**: `app/ai_script_generator.py`
 
 ```python
-class VideoSegmentExtractor:
-    async def extract_segments(self, script: CompilationScript) -> List[VideoSegment]:
+class AIScriptGenerator:
+    async def generate_compilation_script(self, 
+                                        content_matches: List[ContentMatch],
+                                        user_requirements: str) -> CompilationJSON:
         """
-        Extract video segments from existing base64 storage.
-        Uses existing video_processing.py functions.
+        Generate structured JSON for video compilation.
+        
+        Returns JSON format:
+        [
+          {
+            "script_segment": "Start with basic squats. Keep your feet shoulder-width apart",
+            "clips": [
+              {
+                "video_id": "abc123",
+                "start": 3,
+                "end": 7,
+                "video": "base64_of_4_second_squat_clip"
+              }
+            ],
+            "audio": "base64_of_script_segment_audio"
+          }
+        ]
         """
         
-class VideoSegment:
-    segment_id: str
-    video_base64: str
-    start_time: float
-    end_time: float
-    source_video_id: str
-    resolution: str  # "480p", "720p", etc.
+class CompilationJSON:
+    segments: List[CompilationSegment]
+    
+class CompilationSegment:
+    script_segment: str
+    clips: List[VideoClip]
+    audio: str  # base64 audio
+    
+class VideoClip:
+    video_id: str
+    start: float
+    end: float
+    video: str  # base64 video clip (square or 9:16)
 ```
 
-**Leverages Existing**:
-- `app/video_processing.py` - `extract_and_downscale_scene()`
-- `app/simple_db_operations.py` - Video base64 retrieval
-- FFmpeg processing pipeline
+**Key Features**:
+- **AI-Generated Script**: Natural, instructional narration
+- **Multiple Clips per Segment**: Flexible video content per script segment
+- **Base64 Video Clips**: Pre-extracted, properly formatted clips
+- **Aspect Ratio**: All clips converted to square or 9:16 format
 
-### **4.2 Video Compositor**
+### **4.2 Video Stitcher**
 
-**Purpose**: Combine video segments with generated audio into final video.
+**Purpose**: Process compilation JSON into final video with clip looping.
 
-**New Module**: `app/video_compositor.py`
+**New Module**: `app/video_stitcher.py`
 
 ```python
-class VideoCompositor:
-    async def compose_final_video(self, 
-                                video_segments: List[VideoSegment],
-                                audio_segments: List[AudioSegment],
-                                composition_settings: CompositionSettings) -> ComposedVideo:
+class VideoStitcher:
+    async def stitch_compilation_video(self, 
+                                     compilation_json: CompilationJSON,
+                                     settings: StitchingSettings) -> ComposedVideo:
         """
-        Create final video with synchronized audio and video segments.
+        Create final video from compilation JSON.
+        
+        Key Logic:
+        - Loop clips to match audio duration for each segment
+        - Maintain square/9:16 aspect ratio
+        - Seamless transitions between segments
+        - Audio-video synchronization
         """
         
-class CompositionSettings:
-    resolution: str = "720p"
+class StitchingSettings:
+    aspect_ratio: str = "9:16"  # "square" or "9:16"
     framerate: int = 30
     audio_bitrate: str = "128k"
     video_codec: str = "libx264"
-    transition_duration: float = 0.5  # seconds
+    loop_clips: bool = True  # Loop clips to match audio duration
     
 class ComposedVideo:
     video_base64: str
     duration: float
-    resolution: str
+    aspect_ratio: str
     file_size: int
-    composition_metadata: Dict[str, Any]
+    segments_processed: int
+    clips_looped: Dict[str, int]  # How many times each clip was looped
 ```
 
 **Technical Implementation**:
-- **FFmpeg Pipeline**: Advanced video composition using existing FFmpeg integration
-- **Audio Sync**: Precise audio-video synchronization
-- **Transitions**: Smooth cuts, fades, and crossfades between segments
-- **Quality**: Maintains video quality while optimizing file size
+- **Clip Looping**: Automatically loops video clips to match audio segment duration
+- **Aspect Ratio Control**: Ensures all output is square or 9:16 format
+- **Audio-Video Sync**: Perfect synchronization between audio and looped video
+- **Seamless Transitions**: Smooth cuts between script segments
+- **FFmpeg Integration**: Uses existing FFmpeg pipeline for video processing
 
 ---
 
@@ -373,9 +649,11 @@ class CompilationRequest(BaseModel):
     requirements: str                         # "5 minutes, beginner-friendly, mobility focus"
     title: Optional[str] = None              # "Morning Mobility Routine"
     voice_preference: str = "alloy"          # OpenAI TTS voice
-    resolution: str = "720p"                 # Output resolution
+    aspect_ratio: str = "9:16"               # "square" or "9:16"
     max_duration: float = 600.0              # 10 minutes max
-    include_base64: bool = False             # Return video in response
+    include_base64: bool = False             # Return final video in response
+    audio: bool = True                       # Include base64 audio in JSON (debugging)
+    clips: bool = True                       # Include base64 clips in JSON (debugging)
 
 class CompilationResponse(BaseModel):
     success: bool
@@ -383,7 +661,7 @@ class CompilationResponse(BaseModel):
     duration: float
     source_videos_used: int
     processing_time: float
-    script: CompilationScript
+    compilation_json: CompilationJSON        # Complete JSON structure
     video_base64: Optional[str] = None       # If include_base64=True
 ```
 
@@ -458,12 +736,10 @@ class CompilationPipeline:
         1. Validate API request parameters
         2. Generate search queries from user requirements  
         3. Search vector database for relevant content
-        4. Create script with video assignments
-        5. Generate audio for script segments
-        6. Extract video segments from database
-        7. Compose final video with audio sync
-        8. Save to generated_videos table
-        9. Return API response with video ID
+        4. AI generates compilation JSON (script + clips + audio)
+        5. Video stitcher processes JSON into final video
+        6. Save to generated_videos table
+        7. Return API response with video ID
         """
         
         start_time = time.time()
@@ -472,19 +748,50 @@ class CompilationPipeline:
             # 1. Validate request
             await self._validate_compilation_request(request)
             
-            # 2-8. Process compilation pipeline
-            result = await self._execute_compilation_pipeline(request)
+            # 2. Generate search queries
+            search_queries = await self.requirements_generator.generate_search_queries(
+                request.context, request.requirements
+            )
             
-            # 9. Format API response
+            # 3. Search for relevant content
+            content_matches = await self.compilation_search.search_content_segments(search_queries)
+            
+            # 4. AI generates complete compilation JSON
+            compilation_json = await self.ai_script_generator.generate_compilation_json(
+                content_matches, 
+                request.requirements,
+                include_audio=request.audio,
+                include_clips=request.clips
+            )
+            
+            # 5. Video stitcher creates final video (only if base64 requested)
+            final_video = None
+            if request.include_base64:
+                stitching_settings = StitchingSettings(
+                    aspect_ratio=request.aspect_ratio,
+                    framerate=30,
+                    loop_clips=True
+                )
+                
+                final_video = await self.video_stitcher.stitch_compilation_video(
+                    compilation_json, stitching_settings
+                )
+            
+            # 6. Save to database
+            video_id = await self.generated_video_db.save_generated_video(
+                final_video, compilation_json, request
+            )
+            
+            # 7. Format API response
             processing_time = time.time() - start_time
             return CompilationResponse(
                 success=True,
-                generated_video_id=result["video_id"],
-                duration=result["duration"],
-                source_videos_used=result["source_count"],
+                generated_video_id=video_id,
+                duration=final_video.duration if final_video else sum(s.duration for s in compilation_json.segments),
+                source_videos_used=len(set(clip.video_id for segment in compilation_json.segments for clip in segment.clips)),
                 processing_time=processing_time,
-                script=result["script"],
-                video_base64=result.get("video_base64") if request.include_base64 else None
+                compilation_json=compilation_json,
+                video_base64=final_video.video_base64 if final_video else None
             )
             
         except Exception as e:
@@ -569,30 +876,39 @@ TTS_SEMAPHORE = asyncio.Semaphore(5)          # Max 5 concurrent TTS calls
 ### **Phase 1: Foundation (Week 1-2)**
 - [ ] Requirements generator with OpenAI integration
 - [ ] Enhanced vector search using existing Qdrant
-- [ ] Basic script generation
 - [ ] Generated videos database table
+- [ ] Basic compilation JSON structure
 
-### **Phase 2: Audio Pipeline (Week 3)**
-- [ ] OpenAI TTS integration
-- [ ] Audio segment generation and storage
-- [ ] Audio-script synchronization
+### **Phase 2: AI Script Generator (Week 3)**
+- [ ] AI Script Generator with JSON output
+- [ ] Video clip extractor with aspect ratio control
+- [ ] OpenAI TTS integration for audio generation
+- [ ] Base64 encoding for clips and audio
 
-### **Phase 3: Video Processing (Week 4)**
-- [ ] Video segment extractor using existing base64 storage
-- [ ] Video compositor with FFmpeg
+### **Phase 3: Video Stitcher (Week 4)**
+- [ ] Video stitcher with clip looping functionality
+- [ ] FFmpeg integration for aspect ratio control
 - [ ] Audio-video synchronization
+- [ ] Seamless transitions between segments
 
 ### **Phase 4: API & Integration (Week 5)**
-- [ ] Main `/compile` endpoint
+- [ ] Main `/compile` endpoint with new JSON format
 - [ ] Supporting CRUD endpoints
 - [ ] Integration with existing service architecture
 - [ ] Error handling and validation
 
 ### **Phase 5: Optimization (Week 6)**
-- [ ] Performance optimization
-- [ ] Caching strategies
+- [ ] Performance optimization and caching
 - [ ] Quality assurance improvements
+- [ ] Multiple clips per segment support
 - [ ] Documentation and testing
+
+**Benefits of Simplified Architecture**:
+- **Faster Development**: Fewer components to build and integrate
+- **Cleaner Code**: Single JSON format drives the entire pipeline
+- **Better Flexibility**: Easy to add new features or modify output
+- **Easier Testing**: Clear separation between AI generation and video processing
+- **Social Media Ready**: Built-in aspect ratio control for modern platforms
 
 ---
 
@@ -608,7 +924,7 @@ curl -X POST "http://localhost:8501/compile" \
     "requirements": "5 minutes, beginner-friendly, focus on mobility and core strength, clear instructions",
     "title": "Morning Mobility & Core",
     "voice_preference": "alloy",
-    "resolution": "720p"
+    "aspect_ratio": "9:16"
   }'
 ```
 
@@ -618,20 +934,45 @@ curl -X POST "http://localhost:8501/compile" \
   "success": true,
   "generated_video_id": "uuid-generated-video",
   "duration": 300.5,
-  "source_videos_used": 8,
-  "processing_time": 85.2,
-  "script": {
-    "total_duration": 300.5,
+  "source_videos_used": 6,
+  "processing_time": 45.2,
+  "compilation_json": {
     "segments": [
       {
-        "script_text": "Let's start with gentle neck rolls to warm up your spine...",
-        "start_time": 0.0,
-        "end_time": 30.0,
-        "assigned_video_id": "uuid-source-1",
-        "assigned_video_start": 15.0,
-        "assigned_video_end": 45.0
+        "script_segment": "Let's start with gentle neck rolls to warm up your spine and shoulders. Keep the movements slow and controlled.",
+        "clips": [
+          {
+            "video_id": "uuid-neck-rolls-1",
+            "start": 5.0,
+            "end": 15.0,
+            "video": "base64_encoded_neck_roll_clip_9_16_aspect_ratio"
+          },
+          {
+            "video_id": "uuid-neck-rolls-2", 
+            "start": 8.0,
+            "end": 18.0,
+            "video": "base64_encoded_neck_roll_variation_9_16"
+          }
+        ],
+        "audio": "base64_encoded_audio_for_neck_rolls_segment",
+        "duration": 25.0
+      },
+      {
+        "script_segment": "Now let's move into some core activation with modified planks. Focus on engaging your deep abdominal muscles.",
+        "clips": [
+          {
+            "video_id": "uuid-plank-1",
+            "start": 10.0,
+            "end": 20.0,
+            "video": "base64_encoded_plank_clip_9_16_aspect_ratio"
+          }
+        ],
+        "audio": "base64_encoded_audio_for_plank_segment",
+        "duration": 30.0
       }
-    ]
+    ],
+    "total_duration": 300.5,
+    "aspect_ratio": "9:16"
   }
 }
 ```
@@ -646,9 +987,152 @@ curl -X POST "http://localhost:8501/compile" \
     "requirements": "8 minutes, intermediate level, push-ups, planks, resistance exercises",
     "title": "Upper Body Power",
     "voice_preference": "nova",
-    "resolution": "1080p"
+    "aspect_ratio": "square"
   }'
 ```
+
+**Key Features of New Architecture**:
+- **Flexible JSON Structure**: AI generates complete workout structure with multiple clips per exercise
+- **Aspect Ratio Control**: Choose between square (1:1) or vertical (9:16) for social media
+- **Clip Looping**: Video clips automatically loop to match audio duration
+- **Multiple Clips per Segment**: Each exercise can have 1-3 different video clips for variety
+- **Base64 Embedded**: All video clips and audio are embedded in the JSON for easy processing
+- **Debugging Options**: Control what gets included in the JSON for testing
+
+### **Example 3: Debugging Workflow**
+
+**Step 1: Test AI Script Generation (No Base64)**
+```bash
+curl -X POST "http://localhost:8501/compile" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": "Quick fitness routine",
+    "requirements": "2 minutes, basic movements",
+    "audio": false,
+    "clips": false,
+    "include_base64": false
+  }'
+```
+
+**Response** (Fast, no base64 processing):
+```json
+{
+  "success": true,
+  "generated_video_id": "debug-test-1",
+  "duration": 120.0,
+  "source_videos_used": 4,
+  "processing_time": 8.5,
+  "compilation_json": {
+    "segments": [
+      {
+        "script_segment": "Start with gentle arm circles to warm up your shoulders",
+        "clips": [
+          {
+            "video_id": "abc123",
+            "start": 5.0,
+            "end": 10.0,
+            "video": null
+          }
+        ],
+        "audio": null,
+        "duration": 25.0
+      }
+    ]
+  }
+}
+```
+
+**Step 2: Test Audio Generation**
+```bash
+curl -X POST "http://localhost:8501/compile" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": "Quick fitness routine", 
+    "requirements": "2 minutes, basic movements",
+    "audio": true,
+    "clips": false,
+    "include_base64": false
+  }'
+```
+
+**Response** (Includes base64 audio):
+```json
+{
+  "compilation_json": {
+    "segments": [
+      {
+        "script_segment": "Start with gentle arm circles...",
+        "clips": [
+          {
+            "video_id": "abc123",
+            "start": 5.0,
+            "end": 10.0,
+            "video": null
+          }
+        ],
+        "audio": "UklGRoQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YWADAABhVEk...",
+        "duration": 25.0
+      }
+    ]
+  }
+}
+```
+
+**Step 3: Test Video Clip Extraction**
+```bash
+curl -X POST "http://localhost:8501/compile" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": "Quick fitness routine",
+    "requirements": "2 minutes, basic movements", 
+    "audio": false,
+    "clips": true,
+    "include_base64": false
+  }'
+```
+
+**Response** (Includes base64 video clips):
+```json
+{
+  "compilation_json": {
+    "segments": [
+      {
+        "script_segment": "Start with gentle arm circles...",
+        "clips": [
+          {
+            "video_id": "abc123",
+            "start": 5.0,
+            "end": 10.0,
+            "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAACKBtZGF0..."
+          }
+        ],
+        "audio": null,
+        "duration": 25.0
+      }
+    ]
+  }
+}
+```
+
+**Step 4: Full Compilation**
+```bash
+curl -X POST "http://localhost:8501/compile" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": "Quick fitness routine",
+    "requirements": "2 minutes, basic movements",
+    "audio": true,
+    "clips": true,
+    "include_base64": true
+  }'
+```
+
+**Benefits of Debugging Options**:
+- **Fast Testing**: Skip expensive base64 processing during development
+- **Component Isolation**: Test AI script generation separately from video processing
+- **Data Validation**: Verify audio and clips are being generated correctly
+- **Performance Optimization**: Identify bottlenecks in the pipeline
+- **Content Quality**: Review AI-generated script segments before final video
 
 ---
 

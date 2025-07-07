@@ -42,14 +42,15 @@ async def setup_database():
             await conn.execute('''
             CREATE TABLE IF NOT EXISTS simple_videos (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                url TEXT UNIQUE NOT NULL,
+                url TEXT NOT NULL,
                 video_base64 TEXT,
                 transcript JSONB,
                 descriptions JSONB,
                 tags TEXT[],
                 metadata JSONB,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT simple_videos_url_key UNIQUE (url)
             );
             ''')
             
@@ -94,7 +95,7 @@ async def setup_database():
             test_id = await conn.fetchval('''
             INSERT INTO simple_videos (url, metadata) 
             VALUES ($1, $2) 
-            ON CONFLICT (url) DO UPDATE SET metadata = EXCLUDED.metadata
+            ON CONFLICT ON CONSTRAINT simple_videos_url_key DO UPDATE SET metadata = EXCLUDED.metadata
             RETURNING id;
             ''', 'https://test.com/video', '{"test": true}')
             
