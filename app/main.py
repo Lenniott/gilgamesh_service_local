@@ -584,7 +584,7 @@ async def get_rate_limits():
             "success": False,
             "error": f"Failed to get rate limiting statistics: {str(e)}",
             "providers": {}
-        }
+    }
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8500))

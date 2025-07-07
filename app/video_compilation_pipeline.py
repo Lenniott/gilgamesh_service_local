@@ -17,6 +17,8 @@ from app.ai_script_generator import ScriptGenerator, CompilationScript
 from app.generated_video_operations import GeneratedVideoDatabase
 from app.audio_generator import OpenAITTSGenerator, AudioGenerationResult
 from app.audio_processor import AudioProcessor, AudioProcessingResult
+from app.video_segment_extractor import VideoSegmentExtractor
+from app.video_compositor import VideoCompositor, CompositionSettings
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,8 @@ class CompilationPipeline:
         self.generated_video_db = None
         self.audio_generator = None
         self.audio_processor = None
+        self.video_segment_extractor = None
+        self.video_compositor = None
     
     async def initialize(self):
         """Initialize all pipeline components."""
@@ -73,6 +77,12 @@ class CompilationPipeline:
             self.generated_video_db = GeneratedVideoDatabase(self.connections)
             self.audio_generator = OpenAITTSGenerator(self.connections)
             self.audio_processor = AudioProcessor()
+            
+            # Initialize video processing components
+            from app.simple_db_operations import SimpleDBOperations
+            db_operations = SimpleDBOperations(self.connections)
+            self.video_segment_extractor = VideoSegmentExtractor(db_operations)
+            self.video_compositor = VideoCompositor()
             
             logger.info("✅ Compilation pipeline initialized successfully")
             return True
@@ -416,30 +426,81 @@ class CompilationPipeline:
         Returns:
             Dictionary with composed video data
         """
-        # TODO: Implement video composition using FFmpeg
-        # For now, return placeholder composed video
-        
         logger.info(f"🎬 Composing video with {len(script.segments)} segments at {resolution}...")
         
-        # Simulate video composition
-        await asyncio.sleep(2)  # Simulate processing time
-        
-        # Placeholder composed video
-        composed_video = {
-            "video_base64": "placeholder_video_base64_data",  # TODO: Generate actual video
-            "duration": script.total_duration,
-            "resolution": resolution,
-            "file_size": 1024 * 1024,  # Placeholder 1MB
-            "composition_metadata": {
-                "segments_used": len(script.segments),
-                "audio_segments": len(audio_segments),
-                "unique_videos": script.unique_videos_used,
-                "composition_method": "placeholder"
+        try:
+            # Step 1: Extract video segments from database
+            logger.info("📹 Extracting video segments from database...")
+            extraction_result = await self.video_segment_extractor.extract_segments_from_script(
+                script=script,
+                target_resolution=resolution
+            )
+            
+            if not extraction_result.success:
+                logger.error(f"❌ Video segment extraction failed: {extraction_result.error}")
+                return None
+            
+            if not extraction_result.segments:
+                logger.error("❌ No video segments extracted")
+                return None
+            
+            logger.info(f"✅ Extracted {len(extraction_result.segments)} video segments")
+            
+            # Step 2: Compose video with audio
+            logger.info("🎬 Composing video with audio...")
+            composition_settings = CompositionSettings(
+                resolution=resolution,
+                framerate=30,
+                audio_bitrate="128k",
+                video_codec="libx264",
+                audio_codec="aac",
+                enable_crossfades=True,
+                enable_transitions=True,
+                preset="medium",
+                crf="24"
+            )
+            
+            composition_result = await self.video_compositor.compose_final_video(
+                video_segments=extraction_result.segments,
+                audio_segments=audio_segments,
+                script=script,
+                settings=composition_settings
+            )
+            
+            if not composition_result.success:
+                logger.error(f"❌ Video composition failed: {composition_result.error}")
+                return None
+            
+            # Step 3: Convert to expected format
+            composed_video = {
+                "video_base64": composition_result.composed_video.video_base64,
+                "duration": composition_result.composed_video.duration,
+                "resolution": composition_result.composed_video.resolution,
+                "file_size": composition_result.composed_video.file_size,
+                "composition_metadata": {
+                    "segments_used": len(script.segments),
+                    "audio_segments": len(audio_segments),
+                    "unique_videos": script.unique_videos_used,
+                    "composition_method": "ffmpeg",
+                    "extraction_time": extraction_result.total_extraction_time,
+                    "composition_time": composition_result.composition_time,
+                    "video_segments_extracted": extraction_result.successful_extractions,
+                    "failed_extractions": extraction_result.failed_extractions,
+                    "video_codec": composition_settings.video_codec,
+                    "audio_codec": composition_settings.audio_codec,
+                    "preset": composition_settings.preset,
+                    "crf": composition_settings.crf
+                }
             }
-        }
-        
-        logger.info(f"✅ Video composition completed (placeholder)")
-        return composed_video
+            
+            logger.info(f"✅ Video composition completed successfully")
+            logger.info(f"📊 Final video: {composed_video['duration']:.2f}s, {composed_video['file_size']} bytes")
+            
+            return composed_video
+            
+        except Exception as e:
+            logger.error(f"❌ Video composition failed: {e}")
+            return None
     
     def _generate_auto_title(self, context: str, requirements: str) -> str:
         """Generate automatic title from context and requirements."""
