@@ -14,6 +14,7 @@ class SceneInput:
     video_id: str  # video identifier for debugging
     audio: str = None  # base64 string or None
     show_debug: bool = False  # whether to show debug overlay
+    target_duration: float = None  # target duration for video looping (audio duration)
 
 def get_video_duration(video_path: str) -> float:
     """Get the duration of a video file in seconds."""
@@ -155,23 +156,28 @@ def decode_base64_to_tempfile(base64_str: str, extension: str = '.mp4') -> str:
             os.unlink(temp_path)
         raise e
 
-def combine_video_audio(video_path: str, audio_path: str, output_path: str, video_id: str = None):
+def combine_video_audio(video_path: str, audio_path: str, output_path: str, video_id: str = None, target_duration: float = None):
     """Combine video and audio files - AUDIO IS KING! Loop video to match audio duration."""
     try:
         # Get durations
         video_duration = get_video_duration(video_path)
         audio_duration = get_audio_duration(audio_path)
         
-        # AUDIO IS KING - video must match audio duration
-        target_duration = audio_duration
+        # AUDIO IS KING - use provided target_duration or audio_duration
+        if target_duration and target_duration > 0:
+            final_target_duration = target_duration
+            print(f"Using provided target duration: {final_target_duration:.2f}s")
+        else:
+            final_target_duration = audio_duration
+            print(f"Using audio duration as target: {final_target_duration:.2f}s")
         
-        if video_duration < audio_duration:
-            # Need to loop the video to match audio length
-            print(f"Looping video ({video_duration:.1f}s) to match audio ({audio_duration:.1f}s)")
+        if video_duration < final_target_duration:
+            # Need to loop the video to match target duration
+            print(f"Looping video ({video_duration:.1f}s) to match target ({final_target_duration:.1f}s)")
             
             # Create looped video first
             looped_video_path = output_path.replace('.mp4', '_looped.mp4')
-            loop_video(video_path, audio_duration, looped_video_path)
+            loop_video(video_path, final_target_duration, looped_video_path)
             
             # Add video ID overlay if provided
             if video_id:
@@ -202,8 +208,8 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                 os.unlink(overlaid_video_path)
                 
         else:
-            # Video is longer than audio - cut video to match audio
-            print(f"Cutting video ({video_duration:.1f}s) to match audio ({audio_duration:.1f}s)")
+            # Video is longer than target - cut video to match target duration
+            print(f"Cutting video ({video_duration:.1f}s) to match target ({final_target_duration:.1f}s)")
             
             # Add video ID overlay if provided
             if video_id:
@@ -217,7 +223,7 @@ def combine_video_audio(video_path: str, audio_path: str, output_path: str, vide
                 'ffmpeg', '-y',
                 '-i', video_source,
                 '-i', audio_path,
-                '-t', str(audio_duration),  # Cut to audio duration
+                '-t', str(final_target_duration),  # Cut to target duration
                 '-c:v', 'libx264',  # Need to re-encode if we added overlay
                 '-c:a', 'aac',
                 '-map', '0:v:0',  # Video from first input
@@ -292,9 +298,10 @@ def process_scene(scene: SceneInput, temp_dir: str, scene_index: int) -> str:
             f.write(base64.b64decode(scene.audio))
         temp_files.append(audio_path)
         
-        # Combine video and audio
+        # Combine video and audio with target duration
         output_path = os.path.join(temp_dir, f"scene_{scene_index}_combined.mp4")
-        combine_video_audio(video_path, audio_path, output_path, scene.video_id)
+        target_duration = scene.target_duration if scene.target_duration else None
+        combine_video_audio(video_path, audio_path, output_path, scene.video_id, target_duration)
         temp_files.append(output_path)
         return output_path
     

@@ -1,5 +1,83 @@
 # CHANGELOG
 
+## CRITICAL FIX: Audio-Video Sync Issues - 2024-12-25 🎯
+
+### 🎯 **FIXED: All 5 Root Causes of Audio-Video Sync Problems**
+
+**Comprehensive fix for video clips overflowing into next audio segments and timing mismatches.**
+
+#### **Root Causes Identified & Fixed:**
+
+1. **Duration Calculation from Video Instead of Audio** ✅
+- **PROBLEM**: Duration calculated from video clip length instead of audio length
+- **FIX**: Added `_get_audio_duration()` method with multi-method approach
+- **IMPACT**: Audio duration now authoritative for timing
+
+2. **Random Clip Extraction Start Times** ✅
+- **PROBLEM**: Random start times caused inconsistent clip extraction
+- **FIX**: Always start from beginning of matched segment when target_duration provided
+- **IMPACT**: Consistent clip extraction for reliable timing
+
+3. **Video Looping Logic Using Video Duration** ✅
+- **PROBLEM**: Video looping used video duration instead of audio duration
+- **FIX**: Updated `combine_video_audio()` to use target_duration parameter
+- **IMPACT**: Video clips now loop/trim to match audio exactly
+
+4. **Segment Duration Field Set Incorrectly** ✅
+- **PROBLEM**: Segment duration field set to video duration instead of audio duration
+- **FIX**: Updated segment creation to use audio duration as authoritative
+- **IMPACT**: JSON structure now reflects correct timing
+
+5. **Audio and Video Durations Independent** ✅
+- **PROBLEM**: Audio and video durations were calculated independently and mismatched
+- **FIX**: Audio duration drives all timing decisions, video adapts to match
+- **IMPACT**: Perfect synchronization between audio and video
+
+#### **Technical Implementation:**
+
+**New Audio Duration Detection:**
+```python
+async def _get_audio_duration(self, audio_base64: str) -> float:
+    # Method 1: ffprobe stream duration (most accurate for MP3)
+    # Method 2: ffprobe format duration (fallback)
+    # Method 3: ffmpeg output parsing (final fallback)
+    # Fallback: 15.0s default
+```
+
+**Updated Video Extraction:**
+```python
+async def _extract_video_clip(self, match: ContentMatch, aspect_ratio: str, target_duration: float = None):
+    # Audio is king - extract video to match audio duration
+    # Always start from beginning of matched segment for consistency
+    # Use target_duration for precise timing control
+```
+
+**Enhanced Video Stitching:**
+```python
+def combine_video_audio(video_path: str, audio_path: str, output_path: str, video_id: str = None, target_duration: float = None):
+    # Use provided target_duration or audio_duration
+    # Video loops/trims to match target exactly
+    # Video ID overlay for debugging
+```
+
+#### **Files Modified:**
+- **UPDATED**: `app/ai_script_generator.py` - Audio duration calculation and clip extraction
+- **UPDATED**: `app/stitch_scenes.py` - Video looping and audio sync
+- **UPDATED**: `app/video_stitcher.py` - Target duration handling
+
+#### **Impact:**
+- ✅ **Perfect Sync**: Video clips exactly match audio duration
+- ✅ **No Overflow**: Clips no longer extend into next segments
+- ✅ **Consistent Timing**: Reliable segment transitions
+- ✅ **Debug Visibility**: Video ID overlays for troubleshooting
+
+#### **Testing:**
+- Run compilation pipeline to verify audio-video sync
+- Check video ID overlays appear correctly
+- Verify segments transition cleanly without overlap
+
+---
+
 ## MAJOR UPDATE: Clip-First Script Generation Workflow - 2024-12-25 🎬
 
 ### 🎬 **NEW: Clip-First Script Generation for Perfect Audio-Video Alignment**

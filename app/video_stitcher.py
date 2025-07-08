@@ -105,11 +105,15 @@ class VideoStitcher:
                 # Use the first clip from each segment
                 clip = clips[0]
                 
+                # Get segment duration (audio duration is king)
+                segment_duration = segment.get("duration", 0.0)
+                
                 scene = SceneInput(
                     video=clip.get("video"),
                     video_id=clip.get("video_id", f"unknown_{i}"),
                     audio=segment.get("audio"),
-                    show_debug=False  # Can be made configurable
+                    show_debug=False,  # Can be made configurable
+                    target_duration=segment_duration  # Pass target duration for proper looping
                 )
                 scene_inputs.append(scene)
                 clips_looped[scene.video_id] = 1  # Track looping

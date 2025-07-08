@@ -94,7 +94,7 @@ async def test_compilation_pipeline():
         
         # Test compilation request
         test_request = CompilationRequest(
-            context="morning 10 minute workout, full body mobility and strength for beginners, but i also want to work being able to do a handstand so throw in some beginner exercises for that too, and some beginner yoga poses progression for pull ups",
+            context="morning 10 minute workout for the moring, want to work being able to do a handstand so throw in some beginner exercises for that too, and some beginner progression exercises for pull ups",
             requirements="30 seconds, show exercises, bodyweight only",
             title="Test JSON Generation",
             voice_preference="alloy",

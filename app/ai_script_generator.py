@@ -132,11 +132,18 @@ class AIScriptGenerator:
             # Generate audio for the script
             audio_base64 = await self.audio_generator.generate_single_audio(script, voice="alloy", high_quality=False) if include_audio else None
             
-            # Calculate duration based on video clip
-            duration = end_time - start_time
+            # Calculate duration based on AUDIO, not video clip
+            # Audio is king - video clips will loop/trim to match audio duration
+            if audio_base64:
+                # Get accurate audio duration using multiple methods
+                audio_duration = await self._get_audio_duration(audio_base64)
+                duration = audio_duration
+            else:
+                # Fallback to video clip duration if no audio
+                duration = end_time - start_time
             
             # Extract video clip if needed
-            video_clip_obj = await self._extract_video_clip(scene_match, aspect_ratio) if include_clips else None
+            video_clip_obj = await self._extract_video_clip(scene_match, aspect_ratio, target_duration=duration) if include_clips else None
             video_clip_base64 = video_clip_obj.video if video_clip_obj else None
             
             # Create segment with clips array format
@@ -176,18 +183,21 @@ AVAILABLE CONTENT:
 {content_summary}
 
 Generate a JSON array of script segments. Each segment should be:
-- 15-30 seconds of instructional narration
-- Clear, beginner-friendly exercise instructions
-- Natural transitions between exercises
+- 15-30 seconds of instructional narration directly to a single viewer.
 - No intro/outro - just the exercises and instructions
-- No fluff just instructions and benefits
-- make sure to include the number of reps and sets for each exercise
+- Do not talk like you are a coach, just tell the viewer what the exercise is and how many reps and sets to do.
+- Try to use videos from different urls to make it more interesting. 
+- Do not use any other text in the script, just the exercises and instructions.
 
 Return ONLY a JSON array of strings, like:
 [
-  "Start with basic squats. Keep your feet shoulder-width apart and lower down slowly, engaging your core throughout the movement.",
-  "Now transition to push-ups. Start in a plank position, lower your chest to the ground, then push back up with control.",
-  "Let's move to standing marching. Lift your knees high while maintaining good posture and engaging your core."
+  "Squat 10 reps be sure to get as low as you can while keeping your feet flat on the floor",
+  "push ups 10 reps be sure to keep your elbows close to your body",
+  "pike up 10 reps be sure to keep your elbows close to your body",
+  "do 3 rounds of 10 reps each" 
+  "end with a mobility stretch starting with a cat cow stretch for 8 breaths"
+  "move into a cobras pose for 8 breaths"
+  "end with a downward facing dog for 8 breaths"
 ]
 
 Make it 3-5 segments total.
@@ -363,9 +373,13 @@ USER REQUIREMENTS:
 Write a natural, conversational script that:
 1. Accurately describes the exact exercise/movement shown in the video
 2. Uses any form cues or technical details from the transcript if available
-3. Maintains a encouraging, trainer-like tone
 4. Is concise and focused (15-30 seconds of speech)
 5. Does not include any movements or cues not shown in the video
+6. No intro/outro - just the exercises and instructions
+7. Do not talk like you are a coach, just tell the viewer what the exercise is and how many reps and sets to do.
+8. Try to use videos from different urls to make it more interesting. 
+9. Do not use any other text in the script, just the exercises and instructions.
+10. Make sure that the script segement can work at any part of the video, not just the beginning.
 
 Return ONLY the script text, no JSON or other formatting.
 """
@@ -392,7 +406,78 @@ Return ONLY the script text, no JSON or other formatting.
             # Return simple fallback using scene description
             return f"Now we'll do the following exercise: {scene_description}"
 
-    async def _extract_video_clip(self, match: ContentMatch, aspect_ratio: str) -> Optional[VideoClip]:
+    async def _get_audio_duration(self, audio_base64: str) -> float:
+        """Get accurate audio duration using multiple methods."""
+        try:
+            import tempfile
+            import subprocess
+            
+            # Decode base64 audio
+            audio_data = base64.b64decode(audio_base64)
+            
+            # Create temporary file
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
+                temp_file.write(audio_data)
+                temp_path = temp_file.name
+            
+            try:
+                # Method 1: Use ffprobe to get stream duration
+                cmd = [
+                    'ffprobe', '-v', 'quiet', '-show_entries', 
+                    'stream=duration', '-of', 'csv=p=0', temp_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    duration = float(result.stdout.strip())
+                    if duration > 0:
+                        logger.info(f"✅ Audio duration from stream: {duration:.2f}s")
+                        return duration
+                
+                # Method 2: Use ffprobe to get format duration
+                cmd = [
+                    'ffprobe', '-v', 'quiet', '-show_entries', 
+                    'format=duration', '-of', 'csv=p=0', temp_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    duration = float(result.stdout.strip())
+                    if duration > 0:
+                        logger.info(f"✅ Audio duration from format: {duration:.2f}s")
+                        return duration
+                
+                # Method 3: Use ffmpeg to get duration from output
+                cmd = [
+                    'ffmpeg', '-i', temp_path, '-f', 'null', '-'
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                # Parse duration from ffmpeg output
+                import re
+                duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', result.stderr)
+                if duration_match:
+                    hours = int(duration_match.group(1))
+                    minutes = int(duration_match.group(2))
+                    seconds = float(duration_match.group(3))
+                    duration = hours * 3600 + minutes * 60 + seconds
+                    logger.info(f"✅ Audio duration from ffmpeg: {duration:.2f}s")
+                    return duration
+                
+                # Fallback: estimate from text length
+                logger.warning("⚠️ Could not determine audio duration, using text estimate")
+                return 15.0  # Default fallback
+                
+            finally:
+                # Clean up temporary file
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to get audio duration: {e}")
+            return 15.0  # Default fallback
+
+    async def _extract_video_clip(self, match: ContentMatch, aspect_ratio: str, target_duration: float = None) -> Optional[VideoClip]:
         """Extract and format a video clip."""
         try:
             # Get video data from database
@@ -403,16 +488,26 @@ Return ONLY the script text, no JSON or other formatting.
             
             # Calculate clip duration and position
             total_duration = match.end_time - match.start_time
-            if total_duration > 15:
-                # For longer clips, take a random segment
-                import random
-                start_offset = random.uniform(0, total_duration - 10)
-                clip_duration = min(10.0, total_duration - start_offset)
-                start_time = match.start_time + start_offset
-            else:
-                # For shorter clips, use the whole thing
+            
+            # Use target_duration if provided (audio duration), otherwise use video logic
+            if target_duration:
+                # Audio is king - extract video to match audio duration
+                clip_duration = target_duration
+                # ALWAYS start from beginning of the matched segment for consistency
                 start_time = match.start_time
-                clip_duration = min(total_duration, 10.0)
+                logger.info(f"✅ Extracting clip from {match.video_id} starting at {start_time:.2f}s for {clip_duration:.2f}s")
+            else:
+                # Legacy logic for when no target duration provided
+                if total_duration > 15:
+                    # For longer clips, take a random segment
+                    import random
+                    start_offset = random.uniform(0, total_duration - 10)
+                    clip_duration = min(10.0, total_duration - start_offset)
+                    start_time = match.start_time + start_offset
+                else:
+                    # For shorter clips, use the whole thing
+                    start_time = match.start_time
+                    clip_duration = min(total_duration, 10.0)
             
             # Create temporary file for processing
             with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_file:
