@@ -52,7 +52,7 @@ temp/
 test.json
 logs/
 *.log
-
+/storage/
 # Docker
 .docker/
 docker-compose.override.yml
