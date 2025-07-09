@@ -75,31 +75,30 @@ class AIScriptGenerator:
             logger.error(f"❌ Failed to initialize AI Script Generator: {e}")
             return False
     
-    async def generate_compilation_json(self, 
-                                      content_matches: List[ContentMatch],
-                                    user_requirements: str,
-                                      include_audio: bool = True,
-                                      include_clips: bool = True,
-                                      aspect_ratio: str = "9:16",
-                                      show_debug_overlay: bool = False) -> List[Dict[str, Any]]:
+    async def collect_content_context(self, content_matches: List[ContentMatch]) -> Dict[str, Any]:
         """
-        Generate complete compilation JSON with script segments, video clips, and audio.
-        
-        Args:
-            content_matches: List of relevant content matches from search
-            user_requirements: User requirements for the compilation
-            include_audio: Whether to include base64 audio in JSON
-            include_clips: Whether to include base64 clips in JSON
-            aspect_ratio: Target aspect ratio ("square" or "9:16")
-            show_debug_overlay: Whether to show video ID overlay for debugging
+        Collect and organize all available content context.
             
         Returns:
-            List of compilation segments matching vision doc format
+        {
+            "video_segments": [
+                {
+                    "video_id": "video_123",
+                    "start_time": 15.0,
+                    "end_time": 25.0,
+                    "scene_description": "Person doing squats with proper form",
+                    "transcript": "Alright, let's do some squats. Keep your feet shoulder width apart...",
+                    "tags": ["squat", "strength", "lower_body"]
+                }
+            ],
+            "available_exercises": ["squat", "pushup", "plank"],
+            "total_duration": 180.0
+        }
         """
-        
-        # Process each content match into a segment
-        segments = []
-        used_video_ids = set()
+        try:
+            video_segments = []
+            available_exercises = set()
+            total_duration = 0.0
         
         # Group matches by video_id and timestamp
         grouped_matches = {}
@@ -111,58 +110,737 @@ class AIScriptGenerator:
         
         # Process each group
         for (video_id, start_time, end_time), matches in grouped_matches.items():
-            # Skip if we've already used this video too many times
-            if video_id in used_video_ids and len(used_video_ids) > 3:
-                continue
-            
             scene_match = matches["scene"]
             transcript_match = matches["transcript"]
             
-            # Skip if we don't have a scene description
             if not scene_match:
                 continue
             
-            # Generate script using both scene and transcript if available
-            script = await self._generate_segment_script(
-                scene_description=scene_match.content_text,
-                transcript_text=transcript_match.content_text if transcript_match else None,
-                user_requirements=user_requirements
-            )
+                # Extract exercise name from scene description
+                scene_text = scene_match.content_text.lower()
+                exercise_keywords = ["squat", "push", "pull", "plank", "lunge", "jump", "stretch", "mobility", "strength"]
+                found_exercises = [ex for ex in exercise_keywords if ex in scene_text]
+                available_exercises.update(found_exercises)
+                
+                segment = {
+                    "video_id": video_id,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "scene_description": scene_match.content_text,
+                    "transcript": transcript_match.content_text if transcript_match else "",
+                    "tags": scene_match.tags or []
+                }
+                
+                video_segments.append(segment)
+                total_duration += (end_time - start_time)
             
-            # Generate audio for the script
-            audio_base64 = await self.audio_generator.generate_single_audio(script, voice="alloy", high_quality=False) if include_audio else None
-            
-            # Calculate duration based on AUDIO, not video clip
-            # Audio is king - video clips will loop/trim to match audio duration
-            if audio_base64:
-                # Get accurate audio duration using multiple methods
-                audio_duration = await self._get_audio_duration(audio_base64)
-                duration = audio_duration
-            else:
-                # Fallback to video clip duration if no audio
-                duration = end_time - start_time
-            
-            # Extract video clip if needed
-            video_clip_obj = await self._extract_video_clip(scene_match, aspect_ratio, target_duration=duration) if include_clips else None
-            video_clip_base64 = video_clip_obj.video if video_clip_obj else None
-            
-            # Create segment with clips array format
-            segment = {
-                "script_segment": script,
-                "clips": [
-                    {
-                        "video_id": video_id,
-                        "start": start_time,
-                        "end": end_time,
-                        "video": video_clip_base64
-                    }
-                ],
-                "audio": audio_base64,
-                "duration": duration
+            return {
+                "video_segments": video_segments,
+                "available_exercises": list(available_exercises),
+                "total_duration": total_duration
             }
             
+        except Exception as e:
+            logger.error(f"❌ Failed to collect content context: {e}")
+            return {
+                "video_segments": [],
+                "available_exercises": [],
+                "total_duration": 0.0
+            }
+
+    async def generate_workout_requirements(self, user_input: str) -> Dict[str, Any]:
+        """
+        Generate structured workout requirements from user input.
+        
+        This creates a detailed specification of what the workout needs to achieve,
+        which will then guide video selection and exercise planning.
+        """
+        try:
+            prompt = f"""
+You are a fitness programming expert. Create detailed workout requirements for the following user input:
+
+USER INPUT: {user_input}
+
+Generate a JSON object with this structure:
+{{
+    "workout_type": "string (e.g., 'strength', 'mobility', 'skill')",
+    "target_duration": "number in minutes",
+    "primary_goals": ["array of main objectives"],
+    "movement_patterns": ["array of required movement patterns"],
+    "muscle_groups": ["array of target muscle groups"],
+    "skill_requirements": ["array of specific skills to develop"],
+    "equipment_constraints": ["array of available equipment"],
+    "intensity_level": "string (beginner/intermediate/advanced)",
+    "progression_focus": ["array of progression areas"],
+    "time_distribution": {{
+        "warmup_percentage": "number",
+        "main_work_percentage": "number", 
+        "cooldown_percentage": "number"
+    }},
+    "exercise_categories": [
+        {{
+            "category": "string (e.g., 'activation', 'strength', 'skill')",
+            "time_allocation": "number in seconds",
+            "movement_requirements": ["array of specific movement needs"],
+            "intensity_notes": "string"
+        }}
+    ],
+    "success_criteria": ["array of measurable outcomes"],
+    "safety_considerations": ["array of safety requirements"]
+}}
+
+Focus on:
+- What the exercises need to demonstrate/achieve
+- Movement patterns and skill development
+- Time management and progression
+- Safety and scalability
+- Realistic workout structure
+
+Return only valid JSON.
+"""
+            
+            response = await self.connections.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a fitness programming expert. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=800,
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            requirements_text = response.choices[0].message.content.strip()
+            requirements = json.loads(requirements_text)
+            
+            logger.info(f"✅ Generated workout requirements with {len(requirements.get('exercise_categories', []))} categories")
+            return requirements
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate workout requirements: {e}")
+            # Return fallback requirements
+            return {
+                "workout_type": "general",
+                "target_duration": 10,
+                "primary_goals": ["general fitness"],
+                "movement_patterns": ["push", "pull", "squat"],
+                "muscle_groups": ["full body"],
+                "skill_requirements": ["basic movement"],
+                "equipment_constraints": ["bodyweight only"],
+                "intensity_level": "beginner",
+                "progression_focus": ["form"],
+                "time_distribution": {
+                    "warmup_percentage": 20,
+                    "main_work_percentage": 70,
+                    "cooldown_percentage": 10
+                },
+                "exercise_categories": [
+                    {
+                        "category": "activation",
+                        "time_allocation": 120,
+                        "movement_requirements": ["mobility", "activation"],
+                        "intensity_notes": "light"
+                    },
+                    {
+                        "category": "strength",
+                        "time_allocation": 420,
+                        "movement_requirements": ["push", "pull", "core"],
+                        "intensity_notes": "moderate"
+                    },
+                    {
+                        "category": "cooldown",
+                        "time_allocation": 60,
+                        "movement_requirements": ["mobility", "stretching"],
+                        "intensity_notes": "light"
+                    }
+                ],
+                "success_criteria": ["complete workout"],
+                "safety_considerations": ["proper form"]
+            }
+
+    async def generate_structured_compilation_script_with_requirements(self, 
+                                                                   content_matches: List[ContentMatch],
+                                                                   workout_requirements: Dict[str, Any],
+                                                                   user_requirements: str) -> Dict[str, Any]:
+        """
+        Generate a complete structured script using workout requirements for better planning.
+        
+        Returns structured object with:
+        {
+            "segments": [
+                {
+                    "exercise_name": "Squat",
+                    "reps": "10",
+                    "rounds": "1",
+                    "form_cues": "feet shoulder width",
+                    "target_video_id": "video_123",
+                    "start_time": 15.0,
+                    "end_time": 25.0,
+                    "category": "strength",
+                    "text_overlay": "Squat - 10 reps",
+                    "loop_video": true
+                }
+            ],
+            "total_rounds": 3,
+            "workout_structure": "warmup -> strength -> cooldown"
+        }
+        """
+        try:
+            # Collect content context
+            content_context = await self.collect_content_context(content_matches)
+            
+            # Create content summary for AI
+            video_summaries = []
+            for segment in content_context["video_segments"][:15]:  # Increased limit for better selection
+                summary = f"- {segment['scene_description'][:100]}... (tags: {', '.join(segment['tags'])})"
+                video_summaries.append(summary)
+            
+            content_summary = "\n".join(video_summaries)
+            
+            # Extract workout requirements for AI
+            workout_type = workout_requirements.get("workout_type", "general")
+            target_duration = workout_requirements.get("target_duration", 10)
+            primary_goals = workout_requirements.get("primary_goals", [])
+            exercise_categories = workout_requirements.get("exercise_categories", [])
+            
+            # Generate AI prompt for structured script using requirements
+            prompt = f"""
+You are a fitness video script writer. Create a structured workout plan based on detailed requirements.
+
+WORKOUT REQUIREMENTS:
+- Type: {workout_type}
+- Target Duration: {target_duration} minutes
+- Primary Goals: {', '.join(primary_goals)}
+- Exercise Categories: {exercise_categories}
+
+USER REQUIREMENTS: {user_requirements}
+
+AVAILABLE CONTENT:
+{content_summary}
+
+AVAILABLE EXERCISES: {', '.join(content_context['available_exercises'])}
+
+Generate a JSON object with this structure:
+{{
+    "segments": [
+        {{
+            "exercise_name": "Exercise Name",
+            "reps": "number or time",
+            "rounds": "1",
+            "form_cues": "specific form instructions",
+            "target_video_id": "video_123",
+            "start_time": 15.0,
+            "end_time": 25.0,
+            "category": "strength/activation/skill/cooldown",
+            "text_overlay": "Exercise Name - X reps",
+            "loop_video": true/false,
+            "duration": 30.0
+        }}
+    ],
+    "total_rounds": 1,
+    "workout_structure": "category1 -> category2 -> category3"
+}}
+
+Rules:
+- Create a COMPLETE workout that matches the workout requirements
+- Use 6-10 exercises for a full workout (not just 3)
+- Distribute time according to exercise categories
+- Add text overlays for each exercise
+- Loop videos if they're shorter than the segment duration
+- Match exercises to available video content
+- Ensure diversity across video sources
+- Use available exercises: {', '.join(content_context['available_exercises'])}
+- Return valid JSON only
+"""
+            
+            # Call OpenAI to generate structured script
+            response = await self.connections.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a fitness video script writer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1500,  # Increased for more complex workouts
+                temperature=0.2,  # Lower temperature for more consistent JSON
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse the response with error handling
+            script_text = response.choices[0].message.content.strip()
+            try:
+                structured_script = json.loads(script_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ JSON parsing error: {e}")
+                logger.error(f"Raw response: {script_text[:500]}...")
+                # Try to fix common JSON issues
+                try:
+                    # Remove any trailing commas or fix common issues
+                    script_text = script_text.replace(',]', ']').replace(',}', '}')
+                    structured_script = json.loads(script_text)
+                except:
+                    # Return fallback structured script
+                    logger.warning("🔄 Using fallback structured script due to JSON parsing error")
+                    return {
+                        "segments": [
+                            {
+                                "exercise_name": "Basic Movement",
+                                "reps": "10",
+                                "rounds": "1",
+                                "form_cues": "proper form",
+                                "target_video_id": content_matches[0].video_id if content_matches else "",
+                                "start_time": 0.0,
+                                "end_time": 30.0,
+                                "category": "strength",
+                                "text_overlay": "Basic Movement - 10 reps",
+                                "loop_video": True,
+                                "duration": 30.0
+                            }
+                        ],
+                        "total_rounds": 1,
+                        "workout_structure": "simple workout"
+                    }
+            
+            logger.info(f"✅ Generated structured script with {len(structured_script.get('segments', []))} segments")
+            return structured_script
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate structured compilation script with requirements: {e}")
+            # Return fallback structured script
+            return {
+                "segments": [
+                    {
+                        "exercise_name": "Basic Movement",
+                        "reps": "10",
+                        "rounds": "1",
+                        "form_cues": "proper form",
+                        "target_video_id": content_matches[0].video_id if content_matches else "",
+                        "start_time": 0.0,
+                        "end_time": 30.0,
+                        "category": "strength",
+                        "text_overlay": "Basic Movement - 10 reps",
+                        "loop_video": True,
+                        "duration": 30.0
+                    }
+                ],
+                "total_rounds": 1,
+                "workout_structure": "simple workout"
+            }
+
+    async def generate_structured_compilation_script(self, 
+                                                   content_matches: List[ContentMatch],
+                                                   user_requirements: str) -> Dict[str, Any]:
+        """
+        Generate a complete structured script for the entire compilation.
+        
+        Returns structured object with:
+        {
+            "segments": [
+                {
+                    "exercise_name": "Squat",
+                    "reps": "10",
+                    "rounds": "1",
+                    "form_cues": "feet shoulder width",
+                    "target_video_id": "video_123",
+                    "start_time": 15.0,
+                    "end_time": 25.0
+                }
+            ],
+            "total_rounds": 3,
+            "workout_structure": "warmup -> strength -> cooldown"
+        }
+        """
+        try:
+            # Collect content context
+            content_context = await self.collect_content_context(content_matches)
+            
+            # Create content summary for AI
+            video_summaries = []
+            for segment in content_context["video_segments"][:10]:  # Limit to first 10
+                summary = f"- {segment['scene_description'][:100]}... (tags: {', '.join(segment['tags'])})"
+                video_summaries.append(summary)
+            
+            content_summary = "\n".join(video_summaries)
+            
+            # Generate AI prompt for structured script
+            prompt = f"""
+You are a fitness video script writer. Create a structured workout plan.
+
+USER REQUIREMENTS: {user_requirements}
+
+AVAILABLE CONTENT:
+{content_summary}
+
+AVAILABLE EXERCISES: {', '.join(content_context['available_exercises'])}
+
+Generate a JSON object with this structure:
+{{
+    "segments": [
+        {{
+            "exercise_name": "Squat",
+            "reps": "10",
+            "rounds": "1", 
+            "form_cues": "feet shoulder width",
+            "target_video_id": "video_123",
+            "start_time": 15.0,
+            "end_time": 25.0
+        }}
+    ],
+    "total_rounds": 3,
+    "workout_structure": "warmup -> strength -> cooldown"
+}}
+
+Rules:
+- Use ONLY exercise name, reps, and rounds
+- No narrative fluff
+- Match exercises to available video content
+- Ensure diversity across video sources
+- Keep segments 10-30 seconds each
+- Use available exercises: {', '.join(content_context['available_exercises'])}
+- Return valid JSON only
+"""
+            
+            # Call OpenAI to generate structured script
+            response = await self.connections.openai_client.chat.completions.create(
+                model="gpt-4o-mini",  # Use cheaper model for cost reduction
+                messages=[
+                    {"role": "system", "content": "You are a fitness video script writer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,  # Reduced from 1000 for cost savings
+                temperature=0.3,  # Lower temperature for more consistent output
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse the response
+            script_text = response.choices[0].message.content.strip()
+            structured_script = json.loads(script_text)
+            
+            logger.info(f"✅ Generated structured script with {len(structured_script.get('segments', []))} segments")
+            return structured_script
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate structured compilation script: {e}")
+            # Return fallback structured script
+            return {
+                "segments": [
+                    {
+                        "exercise_name": "Basic Movement",
+                        "reps": "10",
+                        "rounds": "1",
+                        "form_cues": "proper form",
+                        "target_video_id": content_matches[0].video_id if content_matches else "",
+                        "start_time": 0.0,
+                        "end_time": 30.0
+                    }
+                ],
+                "total_rounds": 1,
+                "workout_structure": "simple workout"
+            }
+
+    async def parse_structured_script_to_segments(self, 
+                                                structured_script: Dict[str, Any],
+                                                content_matches: List[ContentMatch]) -> List[Dict[str, Any]]:
+        """
+        Parse the structured script into the existing segment format.
+        
+        Converts structured exercise data into the existing compilation JSON format.
+        Enforces diversity by selecting from different videos for each segment.
+        """
+        try:
+            segments = []
+            used_video_ids = set()  # Track used videos for diversity
+            
+            for i, segment_data in enumerate(structured_script.get("segments", [])):
+                exercise_name = segment_data.get("exercise_name", "Exercise")
+                reps = segment_data.get("reps", "10")
+                rounds = segment_data.get("rounds", "1")
+                form_cues = segment_data.get("form_cues", "")
+                
+                # Create simple script text
+                script_text = f"{exercise_name} {reps} reps"
+                if form_cues:
+                    script_text += f" {form_cues}"
+                
+                # Find matching video content with diversity enforcement
+                target_video_id = segment_data.get("target_video_id", "")
+                matching_content = None
+                
+                if target_video_id:
+                    # Try to find exact match
+                    for match in content_matches:
+                        if match.video_id == target_video_id:
+                            matching_content = match
+                            used_video_ids.add(match.video_id)
+                            break
+                
+                # If no exact match or for diversity, select from unused videos
+                if not matching_content and content_matches:
+                    # Find best available content that hasn't been used yet
+                    available_matches = [m for m in content_matches if m.video_id not in used_video_ids]
+                    
+                    if available_matches:
+                        # Select the first available match
+                        matching_content = available_matches[0]
+                        used_video_ids.add(matching_content.video_id)
+                    else:
+                        # If all videos used, reset and use first available
+                        logger.warning("All videos used, resetting for diversity")
+                        used_video_ids.clear()
+                        matching_content = content_matches[0]
+                        used_video_ids.add(matching_content.video_id)
+                
+                if matching_content:
+                    # Create segment in existing format
+            segment = {
+                        "script_segment": script_text,
+                "clips": [
+                    {
+                                "video_id": matching_content.video_id,
+                                "start": matching_content.start_time,
+                                "end": matching_content.end_time,
+                                "video": None  # Will be filled later if needed
+                            }
+                        ],
+                        "audio": None,  # Will be filled later if needed
+                        "duration": matching_content.duration
+                    }
+                    segments.append(segment)
+                else:
+                    # Create placeholder segment
+                    segment = {
+                        "script_segment": script_text,
+                        "clips": [],
+                        "audio": None,
+                        "duration": 15.0  # Default duration
+                    }
+                    segments.append(segment)
+            
+            # Log diversity information
+            unique_videos_used = len(used_video_ids)
+            logger.info(f"✅ Parsed structured script into {len(segments)} segments")
+            logger.info(f"🎯 Diversity: Used {unique_videos_used} unique videos")
+            
+            return segments
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to parse structured script to segments: {e}")
+            return []
+
+    async def parse_structured_script_to_segments_with_overlays(self, 
+                                                              structured_script: Dict[str, Any],
+                                                              content_matches: List[ContentMatch],
+                                                              workout_requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Parse the structured script into segments with text overlays and video looping.
+        
+        Enhanced version that includes:
+        - Text overlays for each exercise
+        - Video looping for short clips
+        - Better time management
+        - Category-based organization
+        """
+        try:
+            segments = []
+            used_video_ids = set()  # Track used videos for diversity
+            
+            for i, segment_data in enumerate(structured_script.get("segments", [])):
+                exercise_name = segment_data.get("exercise_name", "Exercise")
+                reps = segment_data.get("reps", "10")
+                rounds = segment_data.get("rounds", "1")
+                form_cues = segment_data.get("form_cues", "")
+                category = segment_data.get("category", "strength")
+                text_overlay = segment_data.get("text_overlay", f"{exercise_name} - {reps} reps")
+                loop_video = segment_data.get("loop_video", True)
+                target_duration = segment_data.get("duration", 30.0)
+                
+                # Create script text
+                script_text = f"{exercise_name} {reps} reps"
+                if form_cues:
+                    script_text += f" {form_cues}"
+                
+                # Find matching video content with diversity enforcement
+                target_video_id = segment_data.get("target_video_id", "")
+                matching_content = None
+                
+                if target_video_id:
+                    # Try to find exact match
+                    for match in content_matches:
+                        if match.video_id == target_video_id:
+                            matching_content = match
+                            used_video_ids.add(match.video_id)
+                            break
+                
+                # If no exact match or for diversity, select from unused videos
+                if not matching_content and content_matches:
+                    # Find best available content that hasn't been used yet
+                    available_matches = [m for m in content_matches if m.video_id not in used_video_ids]
+                    
+                    if available_matches:
+                        # Select the first available match
+                        matching_content = available_matches[0]
+                        used_video_ids.add(matching_content.video_id)
+                    else:
+                        # If all videos used, reset and use first available
+                        logger.warning("All videos used, resetting for diversity")
+                        used_video_ids.clear()
+                        matching_content = content_matches[0]
+                        used_video_ids.add(matching_content.video_id)
+                
+                if matching_content:
+                    # Calculate video duration and looping
+                    video_duration = matching_content.duration
+                    loops_needed = max(1, int(target_duration / video_duration)) if loop_video else 1
+                    
+                    # Create segment with enhanced features
+                    segment = {
+                        "script_segment": script_text,
+                        "category": category,
+                        "text_overlay": text_overlay,
+                        "loop_video": loop_video,
+                        "loops_needed": loops_needed,
+                        "clips": [
+                            {
+                                "video_id": matching_content.video_id,
+                                "start": matching_content.start_time,
+                                "end": matching_content.end_time,
+                                "video": None,  # Will be filled later if needed
+                                "loop_count": loops_needed
+                            }
+                        ],
+                        "audio": None,  # Will be filled later if needed
+                        "duration": target_duration
+                    }
             segments.append(segment)
-            used_video_ids.add(video_id)
+                else:
+                    # Create placeholder segment
+                    segment = {
+                        "script_segment": script_text,
+                        "category": category,
+                        "text_overlay": text_overlay,
+                        "loop_video": loop_video,
+                        "loops_needed": 1,
+                        "clips": [],
+                        "audio": None,
+                        "duration": target_duration
+                    }
+                    segments.append(segment)
+            
+            # Log diversity information
+            unique_videos_used = len(used_video_ids)
+            logger.info(f"✅ Parsed structured script into {len(segments)} segments with overlays")
+            logger.info(f"🎯 Diversity: Used {unique_videos_used} unique videos")
+            logger.info(f"📝 Categories: {list(set(s.get('category', 'unknown') for s in segments))}")
+            
+            return segments
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to parse structured script to segments with overlays: {e}")
+            return []
+
+    async def generate_compilation_json_with_requirements(self, 
+                                                        content_matches: List[ContentMatch],
+                                                        workout_requirements: Dict[str, Any],
+                                                        user_requirements: str,
+                                                        include_audio: bool = True,
+                                                        include_clips: bool = True,
+                                                        aspect_ratio: str = "9:16",
+                                                        show_debug_overlay: bool = False) -> List[Dict[str, Any]]:
+        """
+        Generate complete compilation JSON using workout requirements for better structure.
+        
+        NEW FLOW:
+        1. Collect all content context
+        2. Generate structured compilation script using workout requirements
+        3. Parse structured script to segments with text overlays and looping
+        4. Add audio/clips to segments
+        """
+        
+        # Step 1: Collect all content context
+        content_context = await self.collect_content_context(content_matches)
+        
+        # Step 2: Generate structured compilation script using workout requirements
+        structured_script = await self.generate_structured_compilation_script_with_requirements(
+            content_matches, workout_requirements, user_requirements
+        )
+        
+        # Step 3: Parse structured script to segments with enhanced features
+        segments = await self.parse_structured_script_to_segments_with_overlays(
+            structured_script, content_matches, workout_requirements
+        )
+        
+        # Step 4: Add audio and clips
+        for segment in segments:
+            if include_audio:
+                segment["audio"] = await self._generate_segment_audio(segment["script_segment"])
+            if include_clips and segment.get("clips"):
+                # Extract video clips for each segment
+                for clip in segment["clips"]:
+                    if clip.get("video_id"):
+                        # Find matching content match
+                        matching_match = None
+                        for match in content_matches:
+                            if match.video_id == clip["video_id"]:
+                                matching_match = match
+                                break
+                        
+                        if matching_match:
+                            video_clip_obj = await self._extract_video_clip(
+                                matching_match, aspect_ratio, target_duration=segment.get("duration", 15.0)
+                            )
+                            clip["video"] = video_clip_obj.video if video_clip_obj else None
+        
+        return segments
+
+    async def generate_compilation_json(self, 
+                                      content_matches: List[ContentMatch],
+                                    user_requirements: str,
+                                      include_audio: bool = True,
+                                      include_clips: bool = True,
+                                      aspect_ratio: str = "9:16",
+                                      show_debug_overlay: bool = False) -> List[Dict[str, Any]]:
+        """
+        Generate complete compilation JSON with script segments, video clips, and audio.
+        
+        NEW FLOW:
+        1. Collect all content context
+        2. Generate structured compilation script
+        3. Parse structured script to segments
+        4. Add audio/clips to segments
+        """
+        
+        # Step 1: Collect all content context
+        content_context = await self.collect_content_context(content_matches)
+        
+        # Step 2: Generate structured compilation script
+        structured_script = await self.generate_structured_compilation_script(
+            content_matches, user_requirements
+        )
+        
+        # Step 3: Parse structured script to segments
+        segments = await self.parse_structured_script_to_segments(
+            structured_script, content_matches
+        )
+        
+        # Step 4: Add audio and clips
+        for segment in segments:
+            if include_audio:
+                segment["audio"] = await self._generate_segment_audio(segment["script_segment"])
+            if include_clips and segment.get("clips"):
+                # Extract video clips for each segment
+                for clip in segment["clips"]:
+                    if clip.get("video_id"):
+                        # Find matching content match
+                        matching_match = None
+                        for match in content_matches:
+                            if match.video_id == clip["video_id"]:
+                                matching_match = match
+                                break
+                        
+                        if matching_match:
+                            video_clip_obj = await self._extract_video_clip(
+                                matching_match, aspect_ratio, target_duration=segment.get("duration", 15.0)
+                            )
+                            clip["video"] = video_clip_obj.video if video_clip_obj else None
             
         return segments
     
@@ -249,7 +927,7 @@ Make it 3-5 segments total.
         
         return "\n".join(summary_lines)
     
-    async def _generate_segment_audio(self, script_text: str) -> Optional[Dict[str, Any]]:
+    async def _generate_segment_audio(self, script_text: str) -> Optional[str]:
         """Generate audio for a single script segment."""
         try:
             # Generate audio using OpenAI TTS
@@ -260,21 +938,14 @@ Make it 3-5 segments total.
             )
             
             if audio_base64:
-                # Estimate duration based on text length (rough approximation)
-                # Average speaking rate: ~150 words per minute
-                word_count = len(script_text.split())
-                duration = max(5.0, (word_count / 150) * 60)  # Min 5 seconds
-                
-                return {
-                    "audio_base64": audio_base64,
-                    "duration": duration
-                }
+                logger.info(f"✅ Generated audio for segment: {script_text[:50]}...")
+                return audio_base64
             else:
                 logger.warning(f"⚠️ Audio generation failed for segment: {script_text[:50]}...")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Failed to generate audio for segment: {e}")
+            logger.error(f"❌ Failed to generate segment audio: {e}")
             return None
         
     async def _select_video_clips(self, script_text: str, content_matches: List[ContentMatch], 
@@ -546,12 +1217,21 @@ Return ONLY the script text, no JSON or other formatting.
             # Calculate target width based on aspect ratio
             target_width = 720 if aspect_ratio == "square" else 405  # 405 for 9:16 (720x1280)
             
+            # Scale to target aspect ratio
+            if aspect_ratio == "9:16":
+                scale_filter = "scale=406:-2"  # Even width for 9:16
+            elif aspect_ratio == "square":
+                scale_filter = "scale=540:540"  # Square format
+            else:
+                scale_filter = "scale=406:-2"  # Default to 9:16
+            
             # Use existing video processing function
             base64_video = extract_and_downscale_scene(
                 input_path,
                 start_time,
                 start_time + duration,
-                target_width=target_width
+                target_width=target_width,
+                scale_filter=scale_filter
             )
             
             if base64_video:

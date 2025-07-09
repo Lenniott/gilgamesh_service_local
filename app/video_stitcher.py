@@ -113,7 +113,8 @@ class VideoStitcher:
                     video_id=clip.get("video_id", f"unknown_{i}"),
                     audio=segment.get("audio"),
                     show_debug=False,  # Can be made configurable
-                    target_duration=segment_duration  # Pass target duration for proper looping
+                    target_duration=segment_duration,  # Pass target duration for proper looping
+                    text_overlay=segment.get("text_overlay")  # Pass text overlay from segment
                 )
                 scene_inputs.append(scene)
                 clips_looped[scene.video_id] = 1  # Track looping

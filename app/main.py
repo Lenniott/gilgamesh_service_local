@@ -61,6 +61,9 @@ class CompileRequest(BaseModel):
     include_base64: bool = False             # Return final video in response
     audio: bool = True                       # Include base64 audio in JSON (debugging)
     clips: bool = True                       # Include base64 clips in JSON (debugging)
+    text_only: bool = True                   # Default to text-only for cost reduction
+    max_segments_per_video: int = 2          # Diversity control
+    min_unique_videos: int = 3               # Diversity control
 
 class QdrantIndexRequest(BaseModel):
     collections: Optional[list] = None  # Specific collections to index, or None for default
@@ -250,7 +253,10 @@ async def compile_video(request: CompileRequest):
                 max_duration=request.max_duration,
                 include_base64=request.include_base64,
                 audio=request.audio,
-                clips=request.clips
+                clips=request.clips,
+                text_only=request.text_only,
+                max_segments_per_video=request.max_segments_per_video,
+                min_unique_videos=request.min_unique_videos
             )
             
             # Process the compilation request

@@ -36,6 +36,9 @@ class CompilationRequest:
     audio: bool = True                       # Include base64 audio in JSON (debugging)
     clips: bool = True                       # Include base64 clips in JSON (debugging)
     show_debug_overlay: bool = False         # Show video ID overlay for debugging
+    text_only: bool = True                   # Default to text-only for cost reduction
+    max_segments_per_video: int = 2          # Diversity control
+    min_unique_videos: int = 3               # Diversity control
 
 @dataclass
 class CompilationResponse:
@@ -116,25 +119,35 @@ class CompilationPipeline:
                     processing_time=time.time() - start_time
                 )
             
-            # Step 2: Generate search queries from user requirements
-            logger.info("🔍 Generating search queries from requirements...")
-            search_queries = await self.requirements_generator.generate_search_queries(
-                request.context, request.requirements
+            # Step 2: Generate workout requirements from user input
+            logger.info("📋 Generating workout requirements from user input...")
+            workout_requirements = await self.script_generator.generate_workout_requirements(
+                f"{request.context} {request.requirements}"
+            )
+            
+            logger.info(f"✅ Generated workout requirements: {workout_requirements.get('workout_type', 'unknown')} workout")
+            logger.info(f"📊 Target duration: {workout_requirements.get('target_duration', 0)} minutes")
+            logger.info(f"🎯 Primary goals: {workout_requirements.get('primary_goals', [])}")
+            
+            # Step 3: Generate search queries based on workout requirements
+            logger.info("🔍 Generating search queries from workout requirements...")
+            search_queries = await self.requirements_generator.generate_search_queries_from_requirements(
+                workout_requirements
             )
             
             if not search_queries:
                 return CompilationResponse(
                     success=False,
-                    error="Failed to generate search queries from requirements",
+                    error="Failed to generate search queries from workout requirements",
                     processing_time=time.time() - start_time
                 )
             
             logger.info(f"✅ Generated {len(search_queries)} search queries")
             logger.info(f"🔍 Search queries: {search_queries}")
             
-            # Step 3: Search vector database for relevant content
+            # Step 4: Search vector database for relevant content
             logger.info("🔎 Searching for relevant video content...")
-            search_results = await self.search_engine.search_content_segments(search_queries)
+            search_results = await self.search_engine.search_content_segments(search_queries, max_results_per_query=30)
             
             # Check if we have sufficient content
             total_matches = sum(len(result.matches) for result in search_results)
@@ -147,17 +160,28 @@ class CompilationPipeline:
             
             logger.info(f"✅ Found {total_matches} relevant video segments")
             
-            # Flatten search results into content matches  
+            # Step 4.5: Apply diversity optimization
+            logger.info("🎯 Applying diversity optimization...")
+            optimized_results = await self.search_engine.optimize_search_results(
+                search_results, 
+                target_duration=request.max_duration,
+                max_videos_per_query=request.min_unique_videos
+            )
+            
+            # Use optimized results for script generation
             content_matches = []
-            for result in search_results:
+            for result in optimized_results:
                 content_matches.extend(result.matches)
             
-            # Step 4: AI generates complete compilation JSON
+            logger.info(f"✅ Optimized to {len(content_matches)} diverse content matches")
+            
+            # Step 5: AI generates complete compilation JSON using workout requirements
             logger.info("🎬 Generating compilation JSON (script + clips + audio)...")
-            segments = await self.script_generator.generate_compilation_json(
+            segments = await self.script_generator.generate_compilation_json_with_requirements(
                 content_matches=content_matches,
+                workout_requirements=workout_requirements,
                 user_requirements=request.requirements,
-                include_audio=request.audio,
+                include_audio=request.audio and not request.text_only,  # Skip audio if text_only
                 include_clips=request.clips,
                 aspect_ratio=request.aspect_ratio
             )

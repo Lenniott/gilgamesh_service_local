@@ -1,5 +1,205 @@
 # CHANGELOG
 
+## MAJOR UPDATE: Workout Requirements Generator + Enhanced Video Output - 2025-01-09 🏋️
+
+### 🏋️ **NEW: Workout Requirements Generator for Realistic, Complete Workouts**
+
+**Implemented a sophisticated two-stage approach that generates detailed workout requirements first, then uses those requirements to guide video selection and create realistic, complete workouts with text overlays and video looping.**
+
+#### **Key Improvements:**
+
+1. **Two-Stage AI Approach** ✅
+- **Stage 1**: Generate detailed workout requirements from user input
+- **Stage 2**: Use requirements to guide video selection and script generation
+- **Benefit**: More realistic, complete workouts (6-10 exercises instead of 3)
+
+2. **Workout Requirements Generator** ✅
+- **NEW**: `generate_workout_requirements()` - Creates structured workout specifications
+- **NEW**: `generate_search_queries_from_requirements()` - Uses requirements for video search
+- **NEW**: `generate_structured_compilation_script_with_requirements()` - Requirements-based script generation
+- **Benefit**: AI understands what exercises need to demonstrate, not just what to call them
+
+3. **Enhanced Video Output Features** ✅
+- **NEW**: Text overlays for each exercise ("Squat - 10 reps")
+- **NEW**: Video looping for clips shorter than segment duration
+- **NEW**: Category-based organization (activation, strength, skill, cooldown)
+- **Benefit**: Professional-looking output with clear exercise instructions
+
+4. **Realistic Workout Structure** ✅
+- **Before**: 3 exercises, incomplete workouts
+- **After**: 6-10 exercises with proper warmup, main work, cooldown
+- **NEW**: Time distribution based on exercise categories
+- **NEW**: Progression from basic to complex movements
+- **Benefit**: Complete, realistic workouts that match user requirements
+
+5. **Requirements-Based Video Selection** ✅
+- **NEW**: Search queries generated from workout requirements
+- **NEW**: AI considers movement patterns, muscle groups, skill requirements
+- **NEW**: Better matching of exercises to available video content
+- **Benefit**: More relevant video selection and better exercise variety
+
+#### **Files Modified:**
+- **UPDATED**: `app/ai_script_generator.py` - New requirements-based methods
+- **UPDATED**: `app/ai_requirements_generator.py` - Requirements-based query generation
+- **UPDATED**: `app/video_compilation_pipeline.py` - Two-stage workflow integration
+- **UPDATED**: `test_compilation_pipeline.py` - Enhanced video output testing
+
+#### **New Methods Added:**
+```python
+# Workout Requirements Generation
+async def generate_workout_requirements(self, user_input: str) -> Dict[str, Any]
+
+# Requirements-Based Script Generation
+async def generate_structured_compilation_script_with_requirements(self, 
+                                                                 content_matches: List[ContentMatch],
+                                                                 workout_requirements: Dict[str, Any],
+                                                                 user_requirements: str) -> Dict[str, Any]
+
+# Enhanced Segment Parsing with Overlays
+async def parse_structured_script_to_segments_with_overlays(self, 
+                                                           structured_script: Dict[str, Any],
+                                                           content_matches: List[ContentMatch],
+                                                           workout_requirements: Dict[str, Any]) -> List[Dict[str, Any]]
+```
+
+#### **Enhanced Video Output Features:**
+```python
+# Text Overlays
+"text_overlay": "Squat - 10 reps"
+
+# Video Looping
+"loop_video": True,
+"loops_needed": 3,  # For 30s segment with 10s video
+
+# Category Organization
+"category": "strength",  # activation/strength/skill/cooldown
+```
+
+#### **Impact:**
+- ✅ **Realistic Workouts**: Complete 6-10 exercise routines
+- ✅ **Professional Output**: Text overlays and video looping
+- ✅ **Better Planning**: Requirements-driven exercise selection
+- ✅ **Time Management**: Proper distribution across exercise categories
+- ✅ **Skill Progression**: Logical movement progression
+
+#### **Example Workout Requirements Output:**
+```json
+{
+  "workout_type": "skill",
+  "target_duration": 10,
+  "primary_goals": ["handstand progression", "pull-up strength"],
+  "movement_patterns": ["vertical push", "vertical pull", "core stability"],
+  "exercise_categories": [
+    {
+      "category": "activation",
+      "time_allocation": 120,
+      "movement_requirements": ["scapular engagement", "core activation"]
+    },
+    {
+      "category": "strength", 
+      "time_allocation": 420,
+      "movement_requirements": ["handstand progressions", "pull-up variations"]
+    }
+  ]
+}
+```
+
+#### **Next Steps:**
+1. Test with real video content to validate requirements-based selection
+2. Optimize text overlay positioning and styling
+3. Fine-tune video looping parameters
+4. Add more exercise categories and progression patterns
+
+---
+
+## MAJOR UPDATE: Structured Script Generation + Diversity Improvements - 2024-12-25 🎬
+
+### 🎬 **NEW: Structured Script Generation for Cost Reduction and Better Quality**
+
+**Implemented a new structured approach to script generation that reduces AI costs by 80% while improving content quality and diversity.**
+
+#### **Key Improvements:**
+
+1. **Single AI Call Instead of Multiple** ✅
+- **Before**: One API call per segment (5-8 calls per compilation)
+- **After**: One API call for entire compilation script
+- **Cost Savings**: ~80% reduction in AI costs
+- **Model**: Switched to `gpt-4o-mini` for cost efficiency
+
+2. **Structured Data Format** ✅
+- **Before**: Free-form text that needs parsing
+- **After**: Structured JSON with exercise_name, reps, rounds, target_video_id
+- **Benefit**: Easier parsing, consistent format, better diversity control
+
+3. **Content Context Collection** ✅
+- **NEW**: `collect_content_context()` - Gathers all available content first
+- **NEW**: `generate_structured_compilation_script()` - Single AI call for entire script
+- **NEW**: `parse_structured_script_to_segments()` - Converts structured data to segments
+- **Benefit**: AI sees all available content and can plan coherent workouts
+
+4. **Text-Only Mode for Testing** ✅
+- **NEW**: `text_only` parameter (default: true) for cost reduction
+- **NEW**: Skip audio generation during testing phase
+- **Benefit**: Faster iteration and lower testing costs
+
+5. **Diversity Enforcement** ✅
+- **NEW**: `max_segments_per_video` parameter (default: 2)
+- **NEW**: `min_unique_videos` parameter (default: 3)
+- **NEW**: Integration with existing `optimize_search_results()` method
+- **Benefit**: Ensures diverse content sources per compilation
+
+#### **Files Modified:**
+- **UPDATED**: `app/ai_script_generator.py` - New structured approach
+- **UPDATED**: `app/video_compilation_pipeline.py` - Diversity optimization integration
+- **UPDATED**: `app/main.py` - New API parameters
+- **UPDATED**: `env.example` - New environment variables
+- **NEW**: `simplified_narrative.md` - Implementation plan
+- **NEW**: `test_structured_script.py` - Test script
+
+#### **New API Parameters:**
+```python
+class CompileRequest(BaseModel):
+    # ... existing fields ...
+    text_only: bool = True                   # Default to text-only for cost reduction
+    max_segments_per_video: int = 2          # Diversity control
+    min_unique_videos: int = 3               # Diversity control
+```
+
+#### **New Environment Variables:**
+```
+# Script Generation (Cost Reduction)
+TEXT_ONLY_MODE=true
+SCRIPT_MAX_TOKENS=500
+STRUCTURED_SCRIPT_MODE=true
+
+# Diversity Configuration
+MIN_UNIQUE_VIDEOS_PER_COMPILATION=3
+MAX_SEGMENTS_PER_VIDEO=2
+DIVERSITY_WARNING_THRESHOLD=0.3
+```
+
+#### **Impact:**
+- ✅ **Cost Reduction**: 80% fewer AI API calls
+- ✅ **Better Quality**: Coherent workout planning
+- ✅ **Diversity**: Multiple video sources per compilation
+- ✅ **Testing Efficiency**: Faster iteration with text-only mode
+- ✅ **Structured Data**: Consistent, parseable output format
+
+#### **Testing Results:**
+- ✅ Structured script generation working correctly
+- ✅ Content context collection successful
+- ✅ Parsing to segments functional
+- ✅ Text-only mode operational
+- ✅ Diversity parameters integrated
+
+#### **Next Steps:**
+1. Test with real video content from Qdrant
+2. Validate diversity improvements
+3. Monitor cost savings
+4. Implement Phase 2 diversity enforcement
+
+---
+
 ## CRITICAL FIX: Audio-Video Sync Issues - 2024-12-25 🎯
 
 ### 🎯 **FIXED: All 5 Root Causes of Audio-Video Sync Problems**

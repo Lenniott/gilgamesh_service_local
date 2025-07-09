@@ -15,6 +15,7 @@ class SceneInput:
     audio: str = None  # base64 string or None
     show_debug: bool = False  # whether to show debug overlay
     target_duration: float = None  # target duration for video looping (audio duration)
+    text_overlay: str = None  # text to overlay on the video (exercise name + instructions)
 
 def get_video_duration(video_path: str) -> float:
     """Get the duration of a video file in seconds."""
@@ -263,6 +264,48 @@ def add_video_id_overlay(input_video: str, output_video: str, video_id: str):
         ]
         subprocess.run(cmd, check=True)
 
+def escape_drawtext_text(text: str) -> str:
+    """Escape text for ffmpeg drawtext filter."""
+    # Order matters: escape backslash first
+    text = text.replace('\\', '\\\\')
+    text = text.replace("'", "\\'")
+    text = text.replace(':', '\\:')
+    text = text.replace('%', '\\%')
+    text = text.replace('\n', '\\n')
+    return text
+
+def add_text_overlay(input_video: str, output_video: str, text: str, video_id: str = None):
+    """Add exercise text overlay to video with optional video ID."""
+    try:
+        # Create overlay text with exercise name and video ID
+        overlay_text = text
+        if video_id:
+            overlay_text += f" | ID: {video_id[:8]}"
+        
+        # Robustly escape text for ffmpeg drawtext
+        escaped_text = escape_drawtext_text(overlay_text)
+        
+        # Add text overlay with exercise name and video ID
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_video,
+            '-vf', f"drawtext=text='{escaped_text}':fontcolor=white:fontsize=32:x=20:y=20:box=1:boxcolor=black@0.7:fontfile=/System/Library/Fonts/Arial.ttf",
+            '-c:a', 'copy',
+            output_video
+        ]
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        # Fallback without custom font if font file doesn't exist
+        escaped_text = escape_drawtext_text(overlay_text)
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_video,
+            '-vf', f"drawtext=text='{escaped_text}':fontcolor=white:fontsize=32:x=20:y=20:box=1:boxcolor=black@0.7",
+            '-c:a', 'copy',
+            output_video
+        ]
+        subprocess.run(cmd, check=True)
+
 def add_debug_overlay(input_path: str, output_path: str, video_id: str):
     """Add a debug overlay showing the video ID."""
     cmd = [
@@ -284,8 +327,14 @@ def process_scene(scene: SceneInput, temp_dir: str, scene_index: int) -> str:
         f.write(base64.b64decode(scene.video))
     temp_files.append(video_path)
     
-    # Add debug overlay if requested
-    if scene.show_debug:
+    # Add text overlay if provided (priority over debug overlay)
+    if scene.text_overlay:
+        overlay_path = os.path.join(temp_dir, f"scene_{scene_index}_overlay.mp4")
+        add_text_overlay(video_path, overlay_path, scene.text_overlay, scene.video_id)
+        video_path = overlay_path
+        temp_files.append(overlay_path)
+    # Add debug overlay if requested (and no text overlay)
+    elif scene.show_debug:
         debug_path = os.path.join(temp_dir, f"scene_{scene_index}_debug.mp4")
         add_debug_overlay(video_path, debug_path, scene.video_id)
         video_path = debug_path

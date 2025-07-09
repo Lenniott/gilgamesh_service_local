@@ -58,7 +58,7 @@ class CompilationSearchEngine:
         self.scene_collection = "video_scene_descriptions"
     
     async def search_content_segments(self, queries: List[SearchQuery], 
-                                    max_results_per_query: int = 10) -> List[SearchResult]:
+                                    max_results_per_query: int = 20) -> List[SearchResult]:
         """
         Search existing vector database for relevant content segments.
         
@@ -86,9 +86,9 @@ class CompilationSearchEngine:
                 import time
                 start_time = time.time()
                 
-                # Search both transcript and scene collections
-                transcript_matches = await self._search_transcript_collection(query, max_results_per_query // 2)
-                scene_matches = await self._search_scene_collection(query, max_results_per_query // 2)
+                # Search both transcript and scene collections with higher limits
+                transcript_matches = await self._search_transcript_collection(query, max_results_per_query)
+                scene_matches = await self._search_scene_collection(query, max_results_per_query)
                 
                 # Combine and rank results
                 all_matches = transcript_matches + scene_matches
@@ -138,7 +138,7 @@ class CompilationSearchEngine:
                 collection_name=self.transcript_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.1,  # Much lower threshold for more permissive matching
+                score_threshold=0.05,  # Much lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -192,7 +192,7 @@ class CompilationSearchEngine:
                 collection_name=self.scene_collection,
                 query_vector=embedding,
                 limit=limit,
-                score_threshold=0.1,  # Much lower threshold for more permissive matching
+                score_threshold=0.05,  # Much lower threshold for more permissive matching
                 with_payload=True
             )
             
@@ -240,8 +240,8 @@ class CompilationSearchEngine:
             # Filter by duration (if specified)
             if query.duration_target > 0:
                 duration_diff = abs(match.duration - query.duration_target)
-                # Allow up to 50% deviation from target duration
-                max_deviation = query.duration_target * 0.5
+                # Allow up to 100% deviation from target duration (more permissive)
+                max_deviation = query.duration_target * 1.0
                 if duration_diff > max_deviation:
                     continue
             
@@ -252,8 +252,8 @@ class CompilationSearchEngine:
                 
                 # Check if at least one required tag is present
                 if not any(req_tag in match_tags_lower for req_tag in required_tags_lower):
-                    # Add small penalty instead of filtering out
-                    match.relevance_score *= 0.8
+                    # Add smaller penalty instead of filtering out
+                    match.relevance_score *= 0.9
             
             # Filter by exclude terms (with penalty instead of hard filter)
             if query.exclude_terms:
@@ -359,15 +359,15 @@ class CompilationSearchEngine:
                                     target_duration: float = 300.0,
                                     max_videos_per_query: int = 3) -> List[SearchResult]:
         """
-        Optimize search results for better video compilation.
+        Optimize search results for better video compilation with diversity enforcement.
         
         Args:
             search_results: List of SearchResult objects
             target_duration: Target total duration for compilation
-            max_videos_per_query: Maximum videos to use per query
+            max_videos_per_query: Minimum unique videos to ensure
             
         Returns:
-            Optimized list of SearchResult objects
+            Optimized list of SearchResult objects with diversity enforcement
         """
         optimized_results = []
         
@@ -383,21 +383,47 @@ class CompilationSearchEngine:
                     video_groups[match.video_id] = []
                 video_groups[match.video_id].append(match)
             
-            # Select best matches from each video
-            optimized_matches = []
+            # Sort videos by their best match relevance score
+            video_scores = []
             for video_id, matches in video_groups.items():
-                # Sort by relevance score
-                matches.sort(key=lambda m: m.relevance_score, reverse=True)
+                best_match = max(matches, key=lambda m: m.relevance_score)
+                video_scores.append((video_id, best_match.relevance_score, matches))
+            
+            # Sort by relevance score (best first)
+            video_scores.sort(key=lambda x: x[1], reverse=True)
+            
+            # Select matches ensuring diversity
+            optimized_matches = []
+            used_video_ids = set()
+            
+            # First pass: ensure we get at least max_videos_per_query unique videos
+            for video_id, score, matches in video_scores:
+                if len(used_video_ids) >= max_videos_per_query:
+                    break
                 
                 # Take the best match from this video
-                optimized_matches.append(matches[0])
+                best_match = max(matches, key=lambda m: m.relevance_score)
+                optimized_matches.append(best_match)
+                used_video_ids.add(video_id)
+            
+            # Second pass: add more matches from different videos if available
+            for video_id, score, matches in video_scores:
+                if video_id in used_video_ids:
+                    continue
                 
-                # Stop if we have enough videos
-                if len(optimized_matches) >= max_videos_per_query:
+                # Add one more match from this video if we have space
+                best_match = max(matches, key=lambda m: m.relevance_score)
+                optimized_matches.append(best_match)
+                used_video_ids.add(video_id)
+                
+                # Stop if we have enough total matches
+                if len(optimized_matches) >= 10:  # Reasonable limit
                     break
             
             # Sort final matches by relevance
             optimized_matches.sort(key=lambda m: m.relevance_score, reverse=True)
+            
+            logger.info(f"🎯 Diversity optimization: {len(used_video_ids)} unique videos, {len(optimized_matches)} total matches")
             
             # Create optimized result
             optimized_result = SearchResult(

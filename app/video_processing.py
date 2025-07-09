@@ -3,7 +3,7 @@ import os
 import base64
 import tempfile
 
-def extract_and_downscale_scene(input_video, start, end, target_width=480):
+def extract_and_downscale_scene(input_video, start, end, target_width=480, scale_filter=None):
     """
     Extract a scene from a video and return it as a base64 blob.
     """
@@ -12,12 +12,16 @@ def extract_and_downscale_scene(input_video, start, end, target_width=480):
         temp_path = temp_file.name
 
     try:
+        # Use provided scale_filter or default to target_width
+        if scale_filter is None:
+            scale_filter = f'scale={target_width}:-2'
+        
         # Extract and downscale the scene
         cmd = [
             'ffmpeg', '-y', '-i', input_video,
             '-ss', str(start),
             '-to', str(end),
-            '-vf', f'scale={target_width}:-2',
+            '-vf', scale_filter,
             '-c:v', 'libx264',
             '-crf', '24',
             '-preset', 'medium',

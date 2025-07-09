@@ -1,0 +1,41 @@
+[
+  {
+    "script_segment": "Pull 5 reps engage lats, core tight",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 6.666667,
+        "end": 9.366667,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAccbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACowAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.6999999999999993
+  },
+  {
+    "script_segment": "Push 10 reps knees on ground, keep elbows close",
+    "clips": [
+      {
+        "video_id": "24ca9511-f650-4ae5-92f1-bef7cf75eeb0",
+        "start": 0.0,
+        "end": 29.266667,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAACxsbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAclMAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 29.266667
+  },
+  {
+    "script_segment": "Mobility 5 reps smooth transitions, engage core",
+    "clips": [
+      {
+        "video_id": "c3d9a7c0-9d1b-4256-868f-64b2e80b5fb3",
+        "start": 0.0,
+        "end": 20.466667,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAACAIbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAT/MAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 20.466667
+  }
+]

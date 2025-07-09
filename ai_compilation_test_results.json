@@ -7,7 +7,7 @@
   "qdrant_content": {
     "video_scene_descriptions": {
       "points": 31,
-      "indexed": 0
+      "indexed": 31
     },
     "mental_welbeing": {
       "points": 32,
@@ -23,7 +23,7 @@
     },
     "video_transcript_segments": {
       "points": 65,
-      "indexed": 0
+      "indexed": 65
     },
     "qdran-docs": {
       "points": 18828,
@@ -33,117 +33,240 @@
   "component_structure": {
     "requirements_generator": true,
     "search_engine": false,
-    "script_generator": false,
+    "script_generator": true,
     "audio_generator": true,
     "main_pipeline": true
   },
   "requirements_analysis": {
     "queries": [
       {
-        "query_text": "beginner bodyweight squats for strength",
-        "priority": 10,
-        "duration_target": 30.0,
-        "tags_filter": [
-          "strength",
-          "legs"
-        ],
-        "content_type": "demonstration"
-      },
-      {
-        "query_text": "gentle yoga stretches for mobility",
-        "priority": 9,
-        "duration_target": 45.0,
-        "tags_filter": [
-          "mobility",
-          "full body"
-        ],
-        "content_type": "instruction"
-      },
-      {
-        "query_text": "beginner push-up modifications",
+        "query_text": "Bodyweight squat with feet shoulder-width apart, keeping chest up and knees tracking over toes",
         "priority": 8,
         "duration_target": 30.0,
         "tags_filter": [
           "strength",
-          "upper body"
-        ],
-        "content_type": "demonstration"
-      },
-      {
-        "query_text": "seated core exercises for beginners",
-        "priority": 7,
-        "duration_target": 30.0,
-        "tags_filter": [
-          "core",
-          "strength"
+          "lower_body"
         ],
         "content_type": "movement"
       },
       {
-        "query_text": "beginner-friendly lunges for strength",
-        "priority": 6,
+        "query_text": "Incline push-up against a wall or countertop, maintaining a straight line from head to heels",
+        "priority": 8,
         "duration_target": 30.0,
         "tags_filter": [
           "strength",
-          "legs"
+          "upper_body"
         ],
-        "content_type": "demonstration"
+        "content_type": "movement"
       },
       {
-        "query_text": "gentle warm-up routine for beginners",
-        "priority": 5,
-        "duration_target": 45.0,
+        "query_text": "Standing calf raises with feet hip-width apart, lifting heels while keeping core engaged",
+        "priority": 7,
+        "duration_target": 30.0,
         "tags_filter": [
-          "warm-up",
-          "full body"
+          "strength",
+          "lower_body"
         ],
-        "content_type": "transition"
+        "content_type": "movement"
       },
       {
-        "query_text": "cool down stretches for daily routine",
-        "priority": 4,
-        "duration_target": 45.0,
+        "query_text": "Seated forward fold stretch, reaching towards toes while keeping a straight back",
+        "priority": 6,
+        "duration_target": 30.0,
         "tags_filter": [
-          "cool down",
-          "flexibility"
+          "mobility",
+          "hamstrings"
         ],
-        "content_type": "instruction"
+        "content_type": "movement"
+      },
+      {
+        "query_text": "Cat-cow stretch for spinal mobility, coordinating breath with movement",
+        "priority": 8,
+        "duration_target": 30.0,
+        "tags_filter": [
+          "mobility",
+          "spine"
+        ],
+        "content_type": "movement"
+      },
+      {
+        "query_text": "Wall angel exercise for shoulder mobility, keeping lower back against the wall",
+        "priority": 7,
+        "duration_target": 30.0,
+        "tags_filter": [
+          "mobility",
+          "upper_body"
+        ],
+        "content_type": "movement"
+      },
+      {
+        "query_text": "Lying glute bridge with feet hip-width apart, squeezing glutes at the top",
+        "priority": 8,
+        "duration_target": 30.0,
+        "tags_filter": [
+          "strength",
+          "lower_body"
+        ],
+        "content_type": "movement"
+      },
+      {
+        "query_text": "Standing side leg raises for hip mobility, keeping upper body stable and core engaged",
+        "priority": 6,
+        "duration_target": 30.0,
+        "tags_filter": [
+          "mobility",
+          "lower_body"
+        ],
+        "content_type": "movement"
       }
     ],
     "focus_areas": [
-      "cool down",
-      "core",
-      "flexibility",
-      "full body",
-      "legs",
+      "hamstrings",
+      "lower_body",
       "mobility",
+      "spine",
       "strength",
-      "upper body",
-      "warm-up"
+      "upper_body"
     ],
-    "avg_priority": 7.0,
-    "avg_duration": 36.42857142857143,
+    "avg_priority": 7.25,
+    "avg_duration": 30.0,
     "success": true
   },
+  "content_matches": [
+    {
+      "video_id": "238f2276-dc26-4a32-9d54-c929a2359728",
+      "content_text": "The exercise being performed is a squat. The individual starts in a standing position, then lowers their body by bending the knees and hips into a squat position, with arms extended forward for balance. They then return to the standing position, completing the movement.",
+      "start_time": 0.0,
+      "end_time": 21.533333,
+      "relevance_score": 0.4915232426666668,
+      "segment_type": "scene",
+      "tags": []
+    },
+    {
+      "video_id": "27592b09-62e5-4bfa-a5fc-eb4dbbb236bd",
+      "content_text": "The exercise being performed is called 'Savage Arch Digs,' which focuses on building mobility and strength throughout the body, particularly beneficial for squats. Here's how to perform it:\n\n1. **Start Position**: Begin in a deep squat position with feet flat on the ground, holding a weight plate in front of you.\n2. **Valley Position**: Twist your torso to bring the plate towards one foot, keeping your core engaged.\n3. **Peak Position**: Lift the plate in an arcing motion over your head to the opposite side, maintaining the squat position.\n4. **End Position**: Lower the plate down to the other foot, completing the arch. Repeat the movement, alternating sides.\n\n**Benefits**: This exercise enhances mobility in the ankles, hips, shoulders, and spine. It also strengthens the core and upper body, making it an excellent warm-up before squat sessions.\n\n**Prerequisites/Safety Considerations**: Ensure you have adequate squat mobility and start with a manageable weight to maintain control throughout the movement. Keep your back straight and core engaged to prevent injury.",
+      "start_time": 0.0,
+      "end_time": 51.8,
+      "relevance_score": 0.417255776,
+      "segment_type": "scene",
+      "tags": []
+    },
+    {
+      "video_id": "27592b09-62e5-4bfa-a5fc-eb4dbbb236bd",
+      "content_text": " If you do this exercise with lightweight before you have your squat session, you're going",
+      "start_time": 13.48,
+      "end_time": 18.08,
+      "relevance_score": 0.40225064000000005,
+      "segment_type": "transcript",
+      "tags": []
+    },
+    {
+      "video_id": "27592b09-62e5-4bfa-a5fc-eb4dbbb236bd",
+      "content_text": " squat.",
+      "start_time": 32.04,
+      "end_time": 33.04,
+      "relevance_score": 0.37775230400000004,
+      "segment_type": "transcript",
+      "tags": []
+    },
+    {
+      "video_id": "27592b09-62e5-4bfa-a5fc-eb4dbbb236bd",
+      "content_text": " All you have to do is squat down, get the plate in front of your feet, and then twist",
+      "start_time": 35.44,
+      "end_time": 41.16,
+      "relevance_score": 0.368796016,
+      "segment_type": "transcript",
+      "tags": []
+    },
+    {
+      "video_id": "24ca9511-f650-4ae5-92f1-bef7cf75eeb0",
+      "content_text": "The exercise being performed is a modified push-up, starting from a prone position with knees on the ground. The individual pushes up from the ground, extending the arms while keeping the knees and lower legs on the mat, reaching a peak position with the chest lifted. The movement ends with the body returning to the starting position, maintaining a straight line from the head to the knees.",
+      "start_time": 0.0,
+      "end_time": 29.266667,
+      "relevance_score": 0.6378612906666667,
+      "segment_type": "scene",
+      "tags": []
+    },
+    {
+      "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+      "content_text": "The exercise being performed is a strict pull-up. Here's how to perform it:\n\n1. **Start Position**: Begin by hanging from a pull-up bar with your hands shoulder-width apart, palms facing away from you. Your arms should be fully extended, and your body should be in a straight line.\n\n2. **Engage Muscles**: Engage your core and lats to stabilize your body. Avoid swinging or using momentum.\n\n3. **Pull Up**: Initiate the movement by pulling your chest towards the bar. Focus on using your back muscles rather than your arms. Keep your elbows close to your body.\n\n4. **Peak Position**: Continue pulling until your chin is above the bar. Hold this position briefly.\n\n5. **Controlled Descent**: Slowly lower your body back to the starting position, fully extending your arms. Control the descent to avoid straining your elbow and shoulder joints.\n\n6. **End Position**: Return to the starting position with your arms fully extended.\n\n**Benefits**: This exercise strengthens the upper body, particularly the lats, biceps, and shoulders. It also engages the core for stabilization.\n\n**Prerequisites/Safety Considerations**: Ensure you have adequate upper body strength to perform this exercise safely. Avoid using momentum or swinging, as this can lead to injury. Focus on a controlled movement, especially during the descent.",
+      "start_time": 15.7,
+      "end_time": 18.133333,
+      "relevance_score": 0.55628088,
+      "segment_type": "scene",
+      "tags": [
+        "strength",
+        "upper body",
+        "pull",
+        "lats",
+        "core"
+      ]
+    },
+    {
+      "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+      "content_text": "The exercise being performed is a strict pull-up. This movement focuses on using the upper body muscles without the assistance of leg kicking or momentum. \n\nStep-by-step instructions:\n1. **START Position**: Begin by hanging from a pull-up bar with your arms fully extended and your body straight. Engage your core and lats.\n2. **VALLEY Position**: Initiate the pull by retracting your shoulder blades and pulling your chest towards the bar. Keep your elbows close to your body.\n3. **PEAK Position**: Continue pulling until your chin is above the bar. Ensure your body remains straight and avoid swinging.\n4. **END Position**: Slowly lower yourself back to the starting position, maintaining control throughout the descent.\n\nBenefits: Pull-ups are excellent for building upper body strength, particularly targeting the back, shoulders, and arms. They also engage the core and improve grip strength.\n\nPrerequisites/Safety Considerations: Ensure you have adequate upper body strength to perform pull-ups safely. Warm up properly to prevent injury, and avoid using momentum to reduce strain on the joints.",
+      "start_time": 9.366667,
+      "end_time": 11.566667,
+      "relevance_score": 0.550112536,
+      "segment_type": "scene",
+      "tags": [
+        "strength",
+        "upper body",
+        "pull",
+        "back",
+        "core"
+      ]
+    },
+    {
+      "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+      "content_text": "The exercise being performed is a strict pull-up. This movement involves hanging from a pull-up bar with an overhand grip, arms fully extended. Engage your lats and core as you initiate the pull. Begin by retracting your shoulder blades and pulling your body upward until your chin is above the bar. Use your hips slightly to assist in the upward motion. Once at the top, pause briefly before slowly lowering yourself back to the starting position, maintaining control throughout the descent. This exercise primarily targets the upper body, including the lats, biceps, and core. It is beneficial for building upper body strength and improving grip. Prerequisites include having a basic level of upper body strength and ensuring proper form to avoid strain on the elbows and shoulders. Safety considerations include avoiding swinging or kipping motions to prevent injury.",
+      "start_time": 6.666667,
+      "end_time": 9.366667,
+      "relevance_score": 0.539678904,
+      "segment_type": "scene",
+      "tags": [
+        "strength",
+        "upper body",
+        "pull",
+        "lats",
+        "core"
+      ]
+    },
+    {
+      "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+      "content_text": "The exercise being performed is a strict pull-up. Here's how to perform it:\n\n1. **Start Position**: Begin by hanging from a pull-up bar with your arms fully extended and your hands shoulder-width apart, palms facing away from you.\n2. **Engage Muscles**: Engage your core and lats to stabilize your body. Avoid swinging or using momentum.\n3. **Pull Up**: Pull your body upward by bending your elbows and driving them down towards your sides. Focus on using your back muscles rather than your arms.\n4. **Peak Position**: Continue pulling until your chin is above the bar. Hold briefly at the top.\n5. **Controlled Descent**: Lower your body back to the starting position in a controlled manner, fully extending your arms.\n6. **Repeat**: Perform the desired number of repetitions.\n\n**Benefits**: Pull-ups are excellent for building upper body strength, particularly targeting the back, shoulders, and arms. They also engage the core and improve grip strength.\n\n**Prerequisites/Safety Considerations**: Ensure you have adequate upper body strength to perform pull-ups safely. Warm up properly to prevent injury. If you're a beginner, consider using resistance bands or an assisted pull-up machine to build strength gradually.",
+      "start_time": 11.566667,
+      "end_time": 15.7,
+      "relevance_score": 0.539170264,
+      "segment_type": "scene",
+      "tags": [
+        "strength",
+        "upper body",
+        "pull",
+        "back",
+        "core"
+      ]
+    }
+  ],
   "vector_search": {
     "success": true,
-    "total_matches": 0,
+    "total_matches": 15,
     "queries_processed": 3,
-    "has_matches": false
+    "has_matches": true
   },
   "script_generation": {
     "success": false,
-    "error": "'ScriptGenerator' object has no attribute 'generate_compilation_script'"
+    "error": "'AIScriptGenerator' object has no attribute 'generate_compilation_script'"
   },
   "audio_generation": {
     "skipped": true,
     "reason": "No script available"
   },
   "full_pipeline": {
-    "success": false,
-    "attempted": true,
-    "error": "'CompilationPipeline' object has no attribute 'create_compilation'",
-    "note": "Expected failure - likely due to video processing or API limits"
+    "success": true,
+    "duration": 240.0,
+    "source_videos_used": 8,
+    "error": null
   },
-  "total_test_time": 9.389482021331787
+  "total_test_time": 71.74120497703552
 }

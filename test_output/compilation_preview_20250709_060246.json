@@ -1,0 +1,67 @@
+[
+  {
+    "script_segment": "Pull-up 5 reps",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 15.7,
+        "end": 18.133333,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAasbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACYIAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.433333000000001
+  },
+  {
+    "script_segment": "Modified Push-up 10 reps",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 15.7,
+        "end": 18.133333,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAasbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACYIAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.433333000000001
+  },
+  {
+    "script_segment": "Cave Dweller Beat Down Dig 8 reps",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 15.7,
+        "end": 18.133333,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAasbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACYIAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.433333000000001
+  },
+  {
+    "script_segment": "World's Greatest Stretch 5 reps",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 15.7,
+        "end": 18.133333,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAasbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACYIAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.433333000000001
+  },
+  {
+    "script_segment": "Savage Arch Digs 6 reps",
+    "clips": [
+      {
+        "video_id": "6d7542a8-16c8-406a-bdf5-f8ee92cb2a37",
+        "start": 15.7,
+        "end": 18.133333,
+        "video": "AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAasbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAACYIAAQAAAQAA..."
+      }
+    ],
+    "audio": null,
+    "duration": 2.433333000000001
+  }
+]

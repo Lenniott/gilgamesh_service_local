@@ -216,8 +216,8 @@ class AIVideoCompilationTest:
         
         # Test 3: Script Generator
         try:
-            from app.ai_script_generator import ScriptGenerator, CompilationScript, ScriptSegment
-            script_gen = ScriptGenerator(None)
+            from app.ai_script_generator import AIScriptGenerator
+            script_gen = AIScriptGenerator(None)
             assert script_gen is not None, "Should initialize"
             logger.info("✅ ScriptGenerator: Working")
             components_status['script_generator'] = True
@@ -418,10 +418,10 @@ class AIVideoCompilationTest:
         logger.info("-" * 60)
         
         try:
-            from app.ai_script_generator import ScriptGenerator
+            from app.ai_script_generator import AIScriptGenerator
             from app.compilation_search import ContentMatch
             
-            script_gen = ScriptGenerator(self.connections)
+            script_gen = AIScriptGenerator(self.connections)
             
             # Get content matches from vector search or create mock ones
             content_matches = []
@@ -640,7 +640,6 @@ class AIVideoCompilationTest:
                 requirements=requirements,
                 title="",  # Auto-generate
                 voice_preference="alloy",
-                resolution="720p",
                 max_duration=600.0,
                 include_base64=False  # Don't include video data for testing
             )
@@ -651,19 +650,19 @@ class AIVideoCompilationTest:
             
             # Test pipeline (this will likely fail at video processing stage)
             try:
-                response = await pipeline.create_compilation(request)
+                response = await pipeline.process_compilation_request(request)
                 
                 logger.info(f"📊 Pipeline Results:")
                 logger.info(f"   Success: {response.success}")
                 logger.info(f"   Duration: {response.duration:.1f}s")
-                logger.info(f"   Title: {response.title}")
+                logger.info(f"   Source Videos: {response.source_videos_used}")
                 if response.error:
                     logger.info(f"   Error: {response.error}")
                 
                 self.test_results['full_pipeline'] = {
                     'success': response.success,
                     'duration': response.duration,
-                    'title': response.title,
+                    'source_videos_used': response.source_videos_used,
                     'error': response.error
                 }
                 

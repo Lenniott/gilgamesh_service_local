@@ -91,6 +91,66 @@ class RequirementsGenerator:
         except Exception as e:
             logger.error(f"❌ Failed to generate search queries: {e}")
             return self._generate_fallback_queries(user_context, user_requirements)
+
+    async def generate_search_queries_from_requirements(self, workout_requirements: Dict[str, Any]) -> List[SearchQuery]:
+        """
+        Generate search queries based on structured workout requirements.
+        
+        Args:
+            workout_requirements: Structured workout requirements from AI
+            
+        Returns:
+            List of SearchQuery objects optimized for vector search
+        """
+        if not self.openai_client:
+            logger.error("❌ OpenAI client not available")
+            return self._generate_fallback_queries_from_requirements(workout_requirements)
+        
+        try:
+            # Create comprehensive prompt for query generation from requirements
+            prompt = self._build_requirements_query_prompt(workout_requirements)
+            
+            # Call OpenAI to generate structured queries
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._get_requirements_system_prompt()
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=1200,
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse the response
+            response_text = response.choices[0].message.content.strip()
+            queries_data = self._parse_openai_response(response_text)
+            
+            # Convert to SearchQuery objects
+            search_queries = []
+            for query_data in queries_data:
+                search_query = SearchQuery(
+                    query_text=query_data.get("query_text", ""),
+                    priority=query_data.get("priority", 5),
+                    duration_target=query_data.get("duration_target", 30.0),
+                    tags_filter=query_data.get("tags_filter", []),
+                    exclude_terms=query_data.get("exclude_terms", []),
+                    content_type=query_data.get("content_type", "movement")
+                )
+                search_queries.append(search_query)
+            
+            logger.info(f"✅ Generated {len(search_queries)} search queries from workout requirements")
+            return search_queries
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate search queries from requirements: {e}")
+            return self._generate_fallback_queries_from_requirements(workout_requirements)
     
     def _get_system_prompt(self) -> str:
         """Get the system prompt for query generation."""
@@ -264,6 +324,132 @@ Focus on finding clear demonstrations that match the user's level and goals."""
         ))
         
         logger.info(f"✅ Generated {len(fallback_queries)} fallback search queries")
+        return fallback_queries
+
+    def _get_requirements_system_prompt(self) -> str:
+        """Get the system prompt for requirements-based query generation."""
+        return """You are an expert fitness trainer specializing in creating personalized workout routines.
+
+Your task is to analyze structured workout requirements and generate specific search queries to find video demonstrations of the required movements.
+
+For example, if the requirements specify:
+- Scapular engagement and strengthening
+- Vertical load tolerance
+- Core integration and antigravity control
+
+You should generate queries like:
+- "Scapular retraction and depression exercises"
+- "Wall-supported handstand progression drills"
+- "Hollow body hold with core engagement"
+
+Key principles:
+1. Translate requirements into specific movement patterns
+2. Consider progression levels (beginner to advanced)
+3. Focus on form and technique demonstrations
+4. Include proper alignment and breathing cues
+5. Match the time allocation and intensity requirements
+
+You must respond in valid JSON format with an array of query objects."""
+
+    def _build_requirements_query_prompt(self, workout_requirements: Dict[str, Any]) -> str:
+        """Build the detailed prompt for requirements-based query generation."""
+        
+        # Extract key information from requirements
+        workout_type = workout_requirements.get("workout_type", "general")
+        target_duration = workout_requirements.get("target_duration", 10)
+        primary_goals = workout_requirements.get("primary_goals", [])
+        movement_patterns = workout_requirements.get("movement_patterns", [])
+        muscle_groups = workout_requirements.get("muscle_groups", [])
+        skill_requirements = workout_requirements.get("skill_requirements", [])
+        exercise_categories = workout_requirements.get("exercise_categories", [])
+        
+        return f"""As an expert fitness trainer, analyze these structured workout requirements and create specific search queries:
+
+WORKOUT TYPE: {workout_type}
+TARGET DURATION: {target_duration} minutes
+PRIMARY GOALS: {', '.join(primary_goals)}
+MOVEMENT PATTERNS: {', '.join(movement_patterns)}
+MUSCLE GROUPS: {', '.join(muscle_groups)}
+SKILL REQUIREMENTS: {', '.join(skill_requirements)}
+
+EXERCISE CATEGORIES:
+{exercise_categories}
+
+Generate 8-12 search queries to find video demonstrations of these movements. Consider:
+- What specific exercises match each category?
+- How to progress from basic to more complex movements?
+- What form cues and alignment details are important?
+- How to distribute time across different movement types?
+
+Respond in this exact JSON format:
+{{
+  "queries": [
+    {{
+      "query_text": "detailed description of the exercise with form cues",
+      "priority": 8,
+      "duration_target": 30.0,
+      "tags_filter": ["movement_type", "body_part"],
+      "exclude_terms": ["advanced", "equipment"],
+      "content_type": "movement"
+    }}
+  ]
+}}
+
+Focus on finding clear demonstrations that match the workout requirements and time constraints."""
+
+    def _generate_fallback_queries_from_requirements(self, workout_requirements: Dict[str, Any]) -> List[SearchQuery]:
+        """Generate fallback queries when OpenAI is not available."""
+        logger.warning("🔄 Generating fallback search queries from requirements")
+        
+        fallback_queries = []
+        
+        # Extract key information
+        workout_type = workout_requirements.get("workout_type", "general")
+        primary_goals = workout_requirements.get("primary_goals", [])
+        movement_patterns = workout_requirements.get("movement_patterns", [])
+        
+        # Generate queries based on workout type
+        if "strength" in workout_type.lower():
+            fallback_queries.append(SearchQuery(
+                query_text="strength training exercise movement",
+                priority=9,
+                duration_target=45.0,
+                tags_filter=["strength", "muscle"],
+                exclude_terms=["cardio", "endurance"],
+                content_type="movement"
+            ))
+        
+        if "mobility" in workout_type.lower():
+            fallback_queries.append(SearchQuery(
+                query_text="mobility stretching flexibility movement",
+                priority=9,
+                duration_target=45.0,
+                tags_filter=["mobility", "flexibility"],
+                exclude_terms=["strength", "cardio"],
+                content_type="movement"
+            ))
+        
+        if "skill" in workout_type.lower():
+            fallback_queries.append(SearchQuery(
+                query_text="skill progression exercise movement",
+                priority=8,
+                duration_target=30.0,
+                tags_filter=["skill", "progression"],
+                exclude_terms=["strength", "cardio"],
+                content_type="movement"
+            ))
+        
+        # Add general fitness query if no specific type
+        if not fallback_queries:
+            fallback_queries.append(SearchQuery(
+                query_text="general fitness exercise movement",
+                priority=6,
+                duration_target=30.0,
+                tags_filter=["exercise", "fitness"],
+                exclude_terms=["advanced", "equipment"],
+                content_type="movement"
+            ))
+        
         return fallback_queries
 
     async def validate_queries(self, queries: List[SearchQuery]) -> List[SearchQuery]:
