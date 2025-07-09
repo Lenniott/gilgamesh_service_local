@@ -1,5 +1,87 @@
 # CHANGELOG
 
+## PLANNED: Massive Refactor - Base64 to File-Based Storage - 2024-12-23 📋
+
+### 📋 **PLANNED: Fundamental System Overhaul for Performance**
+
+**Comprehensive plan to replace base64 storage with file-based storage for video clips to solve performance and reliability issues.**
+
+#### **Problem Statement:**
+- **Performance Issues**: Base64 encoding/decoding causes slow video compilation
+- **Memory Problems**: Large base64 strings cause memory issues and freezes
+- **Reliability**: Prone to errors during video stitching operations
+- **Scalability**: Database storage of large binary data is inefficient
+
+#### **Proposed Solution:**
+- **File-Based Storage**: Save MP4 clips to mounted storage during scene detection
+- **Path References**: Store file paths in JSON metadata instead of base64 strings
+- **Direct File Access**: Video compilation reads from files instead of decoding base64
+- **Scene Description Preservation**: Maintain all expensive AI-generated content
+
+#### **New Database Schema:**
+```sql
+-- New table for clip file management
+CREATE TABLE video_clips (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID REFERENCES simple_videos(id) ON DELETE CASCADE,
+    scene_id UUID NOT NULL,
+    clip_path TEXT NOT NULL,
+    start_time FLOAT NOT NULL,
+    end_time FLOAT NOT NULL,
+    duration FLOAT NOT NULL,
+    file_size BIGINT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Updated simple_videos table
+ALTER TABLE simple_videos ADD COLUMN IF NOT EXISTS video_metadata JSONB;
+ALTER TABLE simple_videos ADD COLUMN IF NOT EXISTS clip_storage_version INTEGER DEFAULT 1;
+```
+
+#### **Implementation Plan:**
+1. **Phase 1**: Infrastructure setup (clip storage system, database schema)
+2. **Phase 2**: Core function updates (scene detection, video processing, stitching)
+3. **Phase 3**: Migration and testing (one-time migration function)
+
+#### **Key Benefits:**
+- ✅ **Performance**: Significantly faster video compilation
+- ✅ **Reliability**: More stable video processing pipeline
+- ✅ **Memory Efficiency**: Reduced memory usage
+- ✅ **Debugging**: Direct file access for troubleshooting
+- ✅ **Scalability**: Better handling of large video volumes
+
+#### **Migration Strategy:**
+- **One-Time Migration**: Convert existing base64 data to files
+- **Scene Description Preservation**: All AI-generated content maintained
+- **Backward Compatibility**: Old system continues to work during transition
+- **Validation**: Comprehensive testing and rollback capability
+
+#### **Files to be Modified:**
+- `app/simple_db_operations.py` - Database operations for file-based storage
+- `app/scene_detection.py` - Save clips as files during scene detection
+- `app/video_processing.py` - Extract scenes to files instead of base64
+- `app/stitch_scenes.py` - Read from files instead of decoding base64
+- `app/simple_unified_processor.py` - Handle file-based scene storage
+
+#### **New Files to Create:**
+- `app/clip_storage.py` - File storage management system
+- `app/migration_tools.py` - Migration utilities and validation
+- `app/clip_operations.py` - Clip file operations and validation
+
+#### **Timeline Estimate:**
+- **Total Duration**: 7-10 days for complete implementation
+- **Risk Mitigation**: Backup strategy, rollback plan, gradual migration
+- **Testing Strategy**: Unit tests, integration tests, performance comparison
+
+#### **Next Steps:**
+1. Review and approve the comprehensive plan in `Massive_refactor.md`
+2. Set up development environment for testing
+3. Begin Phase 1 implementation
+4. Execute migration with monitoring and rollback capability
+
+---
+
 ## MAJOR FEATURE: Advanced AI Rate Limiting System - 2024-12-23 🚦
 
 ### 🚦 **NEW: Comprehensive AI API Rate Limiting with Circuit Breakers**

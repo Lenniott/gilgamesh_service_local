@@ -53,6 +53,10 @@ test.json
 logs/
 *.log
 
+# Documentation iterations and guidance (local context)
+documentation/iterations/
+documentation/guidance/
+/storage/
 # Docker
 .docker/
 docker-compose.override.yml

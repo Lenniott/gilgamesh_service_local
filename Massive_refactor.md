@@ -1,0 +1,285 @@
+# Massive Refactor: Base64 to File-Based Storage
+
+## Problem Statement
+The current system stores video clips as base64 strings in the database, which causes:
+- Slow processing and stitching operations
+- Memory issues with large videos
+- Prone to errors and freezes during video compilation
+- Inefficient storage and retrieval
+
+## Desired Outcome
+Replace base64 storage with file-based storage where:
+- Scene detection stage saves MP4 clips to mounted storage
+- Scene description JSON contains file paths instead of base64
+- Video compilation pipeline reads from files instead of decoding base64
+- Maintains all existing scene descriptions (the expensive AI-generated content)
+
+## Constraints
+1. **Preserve Scene Descriptions**: Cannot lose the expensive AI-generated scene descriptions
+2. **Backward Compatibility**: Existing processed videos must still work
+3. **Storage Management**: Need robust file storage, finding, and deletion capabilities
+4. **Migration Path**: Must support gradual migration from old to new system
+5. **Performance**: New system must be significantly faster than base64 approach
+
+## Success Criteria
+1. **File Storage System**: Robust way to store, find, and delete video clip files
+2. **Scene Description Preservation**: All existing scene descriptions remain intact
+3. **Performance Improvement**: Video compilation is significantly faster and more reliable
+4. **Migration Support**: One-time migration function to move existing data
+5. **Backward Compatibility**: Old base64 data continues to work during transition
+
+## New Database Schema
+
+### New Table: `video_clips`
+```sql
+CREATE TABLE video_clips (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID REFERENCES simple_videos(id) ON DELETE CASCADE,
+    scene_id UUID NOT NULL,  -- UUID for the scene
+    clip_path TEXT NOT NULL,  -- Path to MP4 file
+    start_time FLOAT NOT NULL,  -- Start time in original video
+    end_time FLOAT NOT NULL,   -- End time in original video
+    duration FLOAT NOT NULL,   -- Duration of clip
+    file_size BIGINT,          -- Size of clip file in bytes
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_video_clips_video_id ON video_clips(video_id);
+CREATE INDEX idx_video_clips_scene_id ON video_clips(scene_id);
+CREATE INDEX idx_video_clips_path ON video_clips(clip_path);
+```
+
+### Updated `simple_videos` Table
+```sql
+-- Add new columns to existing table
+ALTER TABLE simple_videos ADD COLUMN IF NOT EXISTS video_metadata JSONB;
+ALTER TABLE simple_videos ADD COLUMN IF NOT EXISTS clip_storage_version INTEGER DEFAULT 1;
+
+-- Update video_metadata structure
+-- {
+--   "scenes": [
+--     {
+--       "scene_id": "uuid",
+--       "description": "ai scene description", 
+--       "clip_path": "path to mp4 of clip",
+--       "tags": ["tags for clip"],
+--       "start": start time of clip from original video,
+--       "end": end time of clip from original video
+--     }
+--   ],
+--   "transcript": [
+--     {
+--       "start": float,
+--       "end": float, 
+--       "text": "transcript text",
+--       "clip_ids": ["any clips that fall within the start and end time"]
+--     }
+--   ],
+--   "rawTranscript": "the whole transcript raw"
+-- }
+```
+
+## Affected Code Files and Functions
+
+### Core Files to Modify
+1. **`app/simple_db_operations.py`**
+   - `save_video_carousel()` - Save clips to files instead of base64
+   - `update_video()` - Handle file-based updates
+   - `get_video_base64()` - Read from files instead of base64 column
+   - New: `save_video_clip()` - Save individual clip to file
+   - New: `get_video_clip_path()` - Get clip file path
+   - New: `delete_video_clips()` - Delete clip files
+
+2. **`app/scene_detection.py`**
+   - `extract_scenes_with_ai_analysis()` - Save clips to files during scene detection
+   - New: `save_scene_clip()` - Extract and save scene as MP4 file
+
+3. **`app/video_processing.py`**
+   - `extract_and_downscale_scene()` - Return file path instead of base64
+   - New: `extract_scene_to_file()` - Extract scene to file
+
+4. **`app/stitch_scenes.py`**
+   - `SceneInput` class - Change video field from base64 to file path
+   - `process_scene()` - Read from files instead of decoding base64
+   - `stitch_scenes_to_base64()` - Rename to `stitch_scenes_from_files()`
+
+5. **`app/simple_unified_processor.py`**
+   - `process_video_unified_simple()` - Handle file-based scene storage
+   - `process_video_unified_full()` - Handle file-based scene storage
+
+### New Files to Create
+1. **`app/clip_storage.py`** - File storage management
+   - `ClipStorage` class for managing clip files
+   - File organization and naming conventions
+   - Cleanup and deletion functions
+
+2. **`app/migration_tools.py`** - Migration utilities
+   - `migrate_base64_to_files()` - One-time migration function
+   - `validate_migration()` - Verify migration success
+   - `rollback_migration()` - Emergency rollback
+
+3. **`app/clip_operations.py`** - Clip file operations
+   - `extract_clip_from_video()` - Extract scene as MP4 file
+   - `validate_clip_file()` - Verify clip file integrity
+   - `get_clip_metadata()` - Get clip file metadata
+
+### Configuration Files
+1. **`clip_storage_config.py`** - Storage configuration
+   - Base storage directory
+   - File naming conventions
+   - Storage quotas and cleanup policies
+
+## Implementation Plan
+
+### Phase 1: Infrastructure Setup
+1. **Create Clip Storage System**
+   - Implement `ClipStorage` class
+   - Set up file organization structure
+   - Add storage configuration
+
+2. **Update Database Schema**
+   - Create `video_clips` table
+   - Add new columns to `simple_videos`
+   - Create necessary indexes
+
+3. **Create Migration Tools**
+   - One-time migration function
+   - Validation and rollback capabilities
+
+### Phase 2: Core Function Updates
+1. **Update Scene Detection**
+   - Modify scene detection to save clips as files
+   - Update scene description format to include file paths
+
+2. **Update Video Processing**
+   - Modify video processing to work with files
+   - Update database operations to handle file paths
+
+3. **Update Stitching Logic**
+   - Modify stitching to read from files
+   - Update SceneInput to use file paths
+
+### Phase 3: Migration and Testing
+1. **Create Migration Function**
+   - Extract base64 data from existing videos
+   - Save as files and update metadata
+   - Preserve all scene descriptions
+
+2. **Test New System**
+   - Test file-based processing
+   - Test migration function
+   - Performance comparison
+
+3. **Deploy and Monitor**
+   - Gradual rollout
+   - Monitor performance improvements
+   - Clean up old base64 data
+
+## File Storage Structure
+```
+/storage/
+├── clips/
+│   ├── 2024/
+│   │   ├── 01/
+│   │   │   ├── video_id_1/
+│   │   │   │   ├── scene_001.mp4
+│   │   │   │   ├── scene_002.mp4
+│   │   │   │   └── metadata.json
+│   │   │   └── video_id_2/
+│   │   │       ├── scene_001.mp4
+│   │   │       └── metadata.json
+│   │   └── 02/
+│   └── 2025/
+└── temp/
+    └── processing/
+```
+
+## Migration Strategy
+
+### One-Time Migration Function
+```python
+async def migrate_base64_to_files():
+    """
+    One-time migration function to convert existing base64 data to files.
+    Preserves all scene descriptions and metadata.
+    """
+    # 1. Get all videos with base64 data
+    # 2. For each video:
+    #    - Extract scene descriptions
+    #    - Decode base64 clips to files
+    #    - Update metadata with file paths
+    #    - Preserve all AI-generated content
+    # 3. Validate migration
+    # 4. Clean up old base64 data (optional)
+```
+
+### Migration Validation
+- Verify all scene descriptions are preserved
+- Confirm file paths are correctly stored
+- Test video compilation with new file-based system
+- Performance comparison with old system
+
+## Accepted Losses
+1. **Revectorization**: Will need to re-vectorize data (can be done better next time)
+2. **Temporary Storage**: Some temporary storage during migration
+3. **Processing Time**: One-time migration processing time
+
+## Performance Benefits
+1. **Faster Video Compilation**: No base64 decoding overhead
+2. **Reduced Memory Usage**: Files read directly instead of loading into memory
+3. **Better Error Handling**: File-based operations are more reliable
+4. **Easier Debugging**: Can inspect clip files directly
+5. **Scalability**: File system can handle larger volumes than database
+
+## Risk Mitigation
+1. **Backup Strategy**: Full backup before migration
+2. **Rollback Plan**: Ability to revert to base64 system
+3. **Gradual Migration**: Test with subset of data first
+4. **Validation**: Comprehensive testing at each step
+5. **Monitoring**: Track performance and error rates
+
+## Testing Strategy
+1. **Unit Tests**: Test each new function individually
+2. **Integration Tests**: Test complete pipeline with file-based system
+3. **Migration Tests**: Test migration function with sample data
+4. **Performance Tests**: Compare old vs new system performance
+5. **Error Handling**: Test various failure scenarios
+
+## Timeline Estimate
+- **Phase 1**: 2-3 days (infrastructure setup)
+- **Phase 2**: 3-4 days (core function updates)
+- **Phase 3**: 2-3 days (migration and testing)
+- **Total**: 7-10 days for complete implementation
+
+## Alternative Approaches Considered
+
+### Option 1: Hybrid System
+- Keep base64 for small clips (< 5MB)
+- Use files for larger clips
+- **Pros**: Gradual transition, backward compatibility
+- **Cons**: Complexity, maintenance overhead
+
+### Option 2: Database BLOB Storage
+- Store files as BLOBs in database
+- **Pros**: Atomic operations, backup simplicity
+- **Cons**: Database bloat, slower than file system
+
+### Option 3: Cloud Storage
+- Store clips in S3/cloud storage
+- **Pros**: Scalability, cost-effective
+- **Cons**: Network dependency, complexity
+
+**Selected Approach**: File-based storage with mounted volume
+- **Pros**: Best performance, simple, reliable
+- **Cons**: Requires storage management, backup strategy
+
+## Next Steps
+1. Review and approve this plan
+2. Set up development environment for testing
+3. Begin Phase 1 implementation
+4. Create test data for validation
+5. Implement migration tools
+6. Execute migration with monitoring
+7. Deploy to production with rollback capability 
